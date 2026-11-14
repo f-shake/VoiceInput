@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>VoiceInput.Providers.DeepSeek</AssemblyName>
+    <RootNamespace>VoiceInput.Providers.DeepSeek</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Private=false：接口程序集由宿主提供。插件目录里再放一份 Core.dll 会导致
+         同一个接口被加载成两个类型，宿主按接口匹配时会一个都找不到。 -->
+    <ProjectReference Include="..\VoiceInput.Core\VoiceInput.Core.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>

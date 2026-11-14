@@ -1,0 +1,13 @@
+<Project>
+  <!-- 三个工程共用的编译设置。@ 符号与空行都别删：MSBuild 只认根元素为 Project 的 props。 -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <!-- 零警告是计划里的验收项，靠这条把它变成硬约束而不是祈祷 -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+</Project>

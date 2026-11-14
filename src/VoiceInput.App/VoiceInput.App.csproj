@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>VoiceInput</AssemblyName>
+    <RootNamespace>VoiceInput.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\voiceinput.ico">
+      <LogicalName>voiceinput.ico</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VoiceInput.Core\VoiceInput.Core.csproj" />
+    <!-- 只为了构建顺序：插件程序集不进主程序引用的清单，运行时由 providers 目录加载。 -->
+    <ProjectReference Include="..\VoiceInput.Providers.DeepSeek\VoiceInput.Providers.DeepSeek.csproj"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\VoiceInput.Providers.SenseVoice\VoiceInput.Providers.SenseVoice.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- 插件必须落在 providers 子目录：宿主只从那里发现引擎。构建与发布两条路径
+       的输出目录不是同一个属性，所以要分成两个 target。
+       sherpa 的托管程序集与原生库放主程序目录：插件是手工加载的，不在 deps.json
+       里，托管依赖靠默认探测只能找到程序目录，P/Invoke 也只找程序目录与系统目录。 -->
+  <Target Name="CopyProvidersToOutput" AfterTargets="Build">
+    <ItemGroup>
+      <ProviderAssemblies Include="..\VoiceInput.Providers.DeepSeek\bin\$(Configuration)\net10.0\VoiceInput.Providers.DeepSeek.dll" />
+      <ProviderAssemblies Include="..\VoiceInput.Providers.SenseVoice\bin\$(Configuration)\net10.0\VoiceInput.Providers.SenseVoice.dll" />
+      <ProviderSupport Include="..\VoiceInput.Providers.SenseVoice\bin\$(Configuration)\net10.0\sherpa-onnx.dll" />
+      <ProviderNatives Include="..\VoiceInput.Providers.SenseVoice\bin\$(Configuration)\net10.0\runtimes\win-x64\native\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ProviderAssemblies)" DestinationFolder="$(OutDir)providers" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ProviderSupport)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ProviderNatives)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyProvidersToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <ProviderAssemblies Include="..\VoiceInput.Providers.DeepSeek\bin\$(Configuration)\net10.0\VoiceInput.Providers.DeepSeek.dll" />
+      <ProviderAssemblies Include="..\VoiceInput.Providers.SenseVoice\bin\$(Configuration)\net10.0\VoiceInput.Providers.SenseVoice.dll" />
+      <ProviderSupport Include="..\VoiceInput.Providers.SenseVoice\bin\$(Configuration)\net10.0\sherpa-onnx.dll" />
+      <ProviderNatives Include="..\VoiceInput.Providers.SenseVoice\bin\$(Configuration)\net10.0\runtimes\win-x64\native\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ProviderAssemblies)" DestinationFolder="$(PublishDir)providers" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ProviderSupport)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(ProviderNatives)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

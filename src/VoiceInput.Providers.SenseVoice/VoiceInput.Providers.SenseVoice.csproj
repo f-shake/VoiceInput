@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>VoiceInput.Providers.SenseVoice</AssemblyName>
+    <RootNamespace>VoiceInput.Providers.SenseVoice</RootNamespace>
+    <!-- 类库默认不把包依赖复制到输出目录，而宿主需要把 sherpa-onnx.dll 一起搬走。 -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="2.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VoiceInput.Core\VoiceInput.Core.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>

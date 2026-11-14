@@ -1,0 +1,18 @@
+{
+  "apiKey": "",
+  "hotkey": "RightCtrl",
+  "provider": "deepseek",
+  "providerOptions": {
+    "baseUrl": "https://api.deepseek.com"
+  },
+  "deviceNumber": null,
+  "maxSeconds": 118,
+  "minSeconds": 0.3,
+  "connectTimeoutSeconds": 5.0,
+  "readTimeoutSeconds": 60.0,
+  "retries": 2,
+  "retryBackoffSeconds": [0.5, 1.5],
+  "beep": true,
+  "pasteDelayMilliseconds": 80,
+  "restoreClipboard": true
+}
