@@ -120,7 +120,7 @@ public sealed class ProviderHost
         {
             throw new VoiceInputException(
                 ErrorCodes.ApiKeyMissing,
-                $"识别引擎 {provider.Descriptor.DisplayName} 需要 API Key，{ErrorCatalog.ApiKeyMissing}");
+                $"识别引擎 {provider.Descriptor.DisplayName} 需要 API Key。");
         }
 
         log.Info($"使用识别引擎 {provider.Descriptor.Id}（{provider.Descriptor.DisplayName}），来源 {provider.Source}。");

@@ -143,6 +143,16 @@ public sealed class ConfigLoaderTests : IDisposable
     [InlineData("retryBackoffSeconds", "[\"0.5\"]")]
     [InlineData("hotkey", "\"left ctrl\"")]
     [InlineData("hotkey", "\"\"")]
+    [InlineData("aiOptimizeMode", "\"poly\"")]
+    [InlineData("aiOptimizeMode", "\"\"")]
+    [InlineData("aiOptimizeModel", "\"\"")]
+    [InlineData("aiOptimizeBaseUrl", "\"ftp://x\"")]
+    [InlineData("aiOptimizeBaseUrl", "\"not a url\"")]
+    [InlineData("aiOptimizeTimeoutSeconds", "0")]
+    [InlineData("aiOptimizeTimeoutSeconds", "61")]
+    [InlineData("keepTrailingPunctuation", "\"false\"")]
+    [InlineData("aiOptimizeApiKey", "123")]
+    [InlineData("aiOptimizeMode", "true")]
     public void 非法取值报E16(string field, string rawValue)
     {
         var error = Assert.Throws<VoiceInputException>(
@@ -223,5 +233,51 @@ public sealed class ConfigLoaderTests : IDisposable
 
         // 被占用不等于语法错误，不能再引导用户去检查 JSON。
         Assert.Equal(ErrorCodes.ConfigReadFailed, error.Code);
+    }
+
+    [Fact]
+    public void 结果优化六个字段都能读对()
+    {
+        var config = ConfigLoader.Load(Write("""
+            {
+              "aiOptimizeMode": "punctuation",
+              "aiOptimizeApiKey": "sk-optimize",
+              "keepTrailingPunctuation": false,
+              "aiOptimizeModel": "deepseek-reasoner",
+              "aiOptimizeBaseUrl": "https://example.com/v1",
+              "aiOptimizeTimeoutSeconds": 12.5
+            }
+            """)).Config;
+
+        Assert.Equal("punctuation", config.AiOptimizeMode);
+        Assert.Equal("sk-optimize", config.AiOptimizeApiKey);
+        Assert.False(config.KeepTrailingPunctuation);
+        Assert.Equal("deepseek-reasoner", config.AiOptimizeModel);
+        Assert.Equal("https://example.com/v1", config.AiOptimizeBaseUrl);
+        Assert.Equal(12.5, config.AiOptimizeTimeoutSeconds);
+    }
+
+    [Fact]
+    public void 结果优化缺省值是不优化()
+    {
+        var config = ConfigLoader.Load(Write("{}")).Config;
+
+        Assert.Equal("none", config.AiOptimizeMode);
+        Assert.Equal(string.Empty, config.AiOptimizeApiKey);
+        Assert.True(config.KeepTrailingPunctuation);
+        Assert.Equal("deepseek-chat", config.AiOptimizeModel);
+        Assert.Equal("https://api.deepseek.com", config.AiOptimizeBaseUrl);
+        Assert.Equal(8.0, config.AiOptimizeTimeoutSeconds);
+    }
+
+    [Fact]
+    public void 模型名超过六十四字符报E16()
+    {
+        var tooLong = new string('m', 65);
+        var error = Assert.Throws<VoiceInputException>(
+            () => ConfigLoader.Load(Write($$"""{ "aiOptimizeModel": "{{tooLong}}" }""")));
+
+        Assert.Equal(ErrorCodes.ConfigValueInvalid, error.Code);
+        Assert.Contains("aiOptimizeModel", error.UserMessage);
     }
 }

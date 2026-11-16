@@ -56,6 +56,7 @@ public static class ErrorCodes
     public const string TrayFailed = "E23";
     public const string ConfigReadFailed = "E24";
     public const string LocalModelMissing = "E25";
+    public const string AiOptimizeFailed = "E26";
 }
 
 /// <summary>
@@ -64,7 +65,7 @@ public static class ErrorCodes
 /// </summary>
 public static class ErrorCatalog
 {
-    public const string ApiKeyMissing = "未配置 API Key，请检查 config.json。";
+    public const string ApiKeyMissing = "未配置 API Key，请在设置里填写。";
     public const string DeviceUnavailable = "无法打开麦克风，请在日志中查看设备列表。";
     public const string RecordingTooShort = "录音过短，已忽略。";
     public const string ApiKeyRejected = "API Key 无效或已失效。";
@@ -86,6 +87,8 @@ public static class ErrorCatalog
     public const string TrayFailed = "已改用 Ctrl+Alt+Q 退出。";
     public const string Recording = "录音中";
     public const string Transcribing = "转写中";
+    public const string Optimizing = "优化中";
+    public const string AiOptimizeFailed = "结果优化失败，已使用原始文本。";
 
     /// <summary>超过 <paramref name="limit"/> 个字符的状态条文案要截断，免得挡住半个屏幕。</summary>
     public const int StatusBarLimit = 18;
@@ -132,6 +135,8 @@ public static class ErrorCatalog
         TrayFailed,
         Recording,
         Transcribing,
+        Optimizing,
+        AiOptimizeFailed,
         Pasted(12),
         NetworkFailed(2),
         ServiceUnavailable(2),

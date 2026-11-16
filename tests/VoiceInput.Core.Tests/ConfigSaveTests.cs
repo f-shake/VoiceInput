@@ -35,7 +35,7 @@ public sealed class ConfigSaveTests : IDisposable
     };
 
     [Fact]
-    public void 新文件写出全部十四个字段()
+    public void 新文件写出全部二十个字段()
     {
         var path = PathOf();
 
@@ -48,11 +48,38 @@ public sealed class ConfigSaveTests : IDisposable
                      "apiKey", "hotkey", "provider", "providerOptions", "deviceNumber",
                      "maxSeconds", "minSeconds", "connectTimeoutSeconds", "readTimeoutSeconds",
                      "retries", "retryBackoffSeconds", "beep", "pasteDelayMilliseconds",
-                     "restoreClipboard",
+                     "restoreClipboard", "aiOptimizeMode", "aiOptimizeApiKey",
+                     "keepTrailingPunctuation", "aiOptimizeModel", "aiOptimizeBaseUrl",
+                     "aiOptimizeTimeoutSeconds",
                  })
         {
             Assert.True(root.TryGetProperty(name, out _), name);
         }
+    }
+
+    [Fact]
+    public void 结果优化字段能写回并读回()
+    {
+        var path = PathOf();
+        var saved = new AppConfig
+        {
+            AiOptimizeMode = "polish",
+            AiOptimizeApiKey = "sk-optimize-key",
+            KeepTrailingPunctuation = false,
+            AiOptimizeModel = "deepseek-reasoner",
+            AiOptimizeBaseUrl = "https://example.com/v1",
+            AiOptimizeTimeoutSeconds = 15,
+        };
+
+        ConfigLoader.Save(path, saved);
+        var loaded = ConfigLoader.Load(path).Config;
+
+        Assert.Equal(saved.AiOptimizeMode, loaded.AiOptimizeMode);
+        Assert.Equal(saved.AiOptimizeApiKey, loaded.AiOptimizeApiKey);
+        Assert.Equal(saved.KeepTrailingPunctuation, loaded.KeepTrailingPunctuation);
+        Assert.Equal(saved.AiOptimizeModel, loaded.AiOptimizeModel);
+        Assert.Equal(saved.AiOptimizeBaseUrl, loaded.AiOptimizeBaseUrl);
+        Assert.Equal(saved.AiOptimizeTimeoutSeconds, loaded.AiOptimizeTimeoutSeconds);
     }
 
     [Fact]

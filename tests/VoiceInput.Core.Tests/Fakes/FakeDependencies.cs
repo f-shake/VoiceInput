@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using VoiceInput.Core.Asr;
 using VoiceInput.Core.Diagnostics;
+using VoiceInput.Core.Optimize;
 using VoiceInput.Core.Pipeline;
 
 namespace VoiceInput.Core.Tests.Fakes;
@@ -88,6 +89,34 @@ public sealed class BlockingTranscriber : ITranscriber
     public TaskCompletionSource<AsrResult> Source { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public Task<AsrResult> TranscribeAsync(byte[] wavBytes, CancellationToken cancellationToken) => Source.Task;
+}
+
+/// <summary>结果优化器的替身：可以正常返回、抛错，或卡住让人观察“优化中”。</summary>
+public sealed class FakeRefiner : ITextRefiner
+{
+    public string Description { get; set; } = "fix";
+
+    public string Result { get; set; } = "优化后的文字";
+
+    public Exception? Error { get; set; }
+
+    public int Calls { get; private set; }
+
+    /// <summary>不为空时用它当返回值，测试可借此把流程停在“优化中”。</summary>
+    public TaskCompletionSource<string>? Gate { get; set; }
+
+    public Task<string> RefineAsync(string text, CancellationToken cancellationToken)
+    {
+        Calls++;
+        if (Gate is not null)
+        {
+            return Gate.Task;
+        }
+
+        return Error is null
+            ? Task.FromResult(Result)
+            : Task.FromException<string>(Error);
+    }
 }
 
 public sealed class FakePaster : IPaster

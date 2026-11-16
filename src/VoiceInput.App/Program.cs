@@ -1,11 +1,10 @@
-using System.Security;
-using Microsoft.Win32;
 using VoiceInput.App.Platform;
 using VoiceInput.App.Providers;
 using VoiceInput.App.Ui;
 using VoiceInput.Core.Asr;
 using VoiceInput.Core.Config;
 using VoiceInput.Core.Diagnostics;
+using VoiceInput.Core.Optimize;
 using VoiceInput.Core.Pipeline;
 using VoiceInput.Core.Providers;
 
@@ -24,8 +23,7 @@ internal static class Program
         using var mutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
         if (!createdNew)
         {
-            MessageBox.Show(
-                ErrorCatalog.AlreadyRunning, "VoiceInput", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Dialogs.Show(null, "已有实例在运行", ErrorCatalog.AlreadyRunning, TaskDialogIcon.Information);
             return ExitCodeStartupFailure;
         }
 
@@ -60,14 +58,12 @@ internal static class Program
         catch (VoiceInputException ex)
         {
             log.Error($"{ex.Code} {ex.UserMessage} {ex.Detail}");
-            MessageBox.Show(ex.UserMessage, "VoiceInput", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            Dialogs.Show(null, "无法读取配置", ex.UserMessage, TaskDialogIcon.Error, ex.Detail);
             return ExitCodeStartupFailure;
         }
 
-        var apiKey = ApiKeyResolver.Resolve(config.ApiKey, userEnvironment: ReadUserEnvironment);
-        log.Info(apiKey.Found
-            ? $"API Key 来源：{apiKey.Source}。"
-            : "API Key：进程环境变量、用户环境变量、配置文件都没有。");
+        var apiKey = config.ApiKey.Trim();
+        log.Info(apiKey.Length > 0 ? "API Key：来自配置文件。" : "API Key：配置文件里没有填。");
         foreach (var screen in Screen.AllScreens)
         {
             log.Info($"显示器 {screen.DeviceName} 主屏={screen.Primary} 工作区={screen.WorkingArea}");
@@ -88,29 +84,50 @@ internal static class Program
 
         // 只有需要 Key 的引擎才拦启动：本地离线引擎没有 Key 也应该能起来。
         var selected = providers.Find(config.Provider);
-        if ((selected?.Instance.NeedsApiKey ?? true) && !apiKey.Found)
+        var logDirectory = Path.Combine(localAppData, "VoiceInput", "logs");
+        if ((selected?.Instance.NeedsApiKey ?? true) && apiKey.Length == 0)
         {
-            log.Error($"{ErrorCodes.ApiKeyMissing} 选中的引擎需要 Key，但三个来源都没有。");
-            MessageBox.Show(
-                ErrorCatalog.ApiKeyMissing, "VoiceInput", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return ExitCodeStartupFailure;
+            // 没有环境变量可退：缺 Key 时直接打开设置窗口让人填，否则程序起不来、也就没地方填。
+            log.Warn($"{ErrorCodes.ApiKeyMissing} 未配置 API Key，打开设置窗口。");
+            var startup = new StartupRegistration();
+            if (PromptForApiKey(config, configPath, logDirectory, providers, startup, log))
+            {
+                try
+                {
+                    config = ConfigLoader.Load(configPath).Config;
+                }
+                catch (VoiceInputException ex)
+                {
+                    log.Error($"{ex.Code} {ex.UserMessage} {ex.Detail}");
+                    Dialogs.Show(null, "无法读取配置", ex.UserMessage, TaskDialogIcon.Error, ex.Detail);
+                    return ExitCodeStartupFailure;
+                }
+
+                apiKey = config.ApiKey.Trim();
+                // 用户可能在窗口里换成了不需要 Key 的本地引擎，按新配置重新判断。
+                selected = providers.Find(config.Provider);
+            }
+
+            if ((selected?.Instance.NeedsApiKey ?? true) && apiKey.Length == 0)
+            {
+                // 取消，或保存后仍是需要 Key 的引擎却没有 Key。
+                log.Error($"{ErrorCodes.ApiKeyMissing} 启动时仍缺少可用的 Key，退出。");
+                Dialogs.Show(null, "未配置 API Key", "请在设置里填写后再启动。", TaskDialogIcon.Warning);
+                return ExitCodeStartupFailure;
+            }
         }
 
         try
         {
-            var logDirectory = Path.Combine(localAppData, "VoiceInput", "logs");
-            var keySource = apiKey.Found ? apiKey.Source : "未配置";
-
             using var context = new TrayApplicationContext(
-                config, apiKey.Key, configPath, logDirectory, keySource, ReadUserEnvironment, providers, log);
+                config, apiKey, configPath, logDirectory, providers, log);
             Application.Run(context);
         }
 
         catch (Exception ex)
         {
             log.Error($"{ErrorCodes.Unexpected} 启动失败：{ex}");
-            MessageBox.Show(
-                ErrorCatalog.Unexpected, "VoiceInput", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            Dialogs.Show(null, "启动失败", ErrorCatalog.Unexpected, TaskDialogIcon.Error);
             return ExitCodeStartupFailure;
         }
 
@@ -119,20 +136,41 @@ internal static class Program
     }
 
     /// <summary>
-    /// 读用户级环境变量。只读进程环境变量不够：新设的用户级变量不会补进已经在
-    /// 运行的进程，现象是“明明设了却报没配置”。
+    /// 缺 Key 时的唯一出路：直接打开设置窗口让人填。Key 只从设置里来，没有环境变量
+    /// 可退，再弹一句“请检查 config.json”只会让人去找一个不存在的入口。
     /// </summary>
-    private static string? ReadUserEnvironment(string name)
+    private static bool PromptForApiKey(
+        AppConfig config,
+        string configPath,
+        string logDirectory,
+        ProviderHost providers,
+        StartupRegistration startup,
+        IDiagnosticsLog log)
     {
-        try
+        using var form = new SettingsForm(
+            config,
+            configPath,
+            logDirectory,
+            startup.IsEnabled,
+            providers.Providers.Select(provider => provider.Descriptor).ToList());
+
+        var saved = false;
+        form.Saved += result =>
         {
-            using var environment = Registry.CurrentUser.OpenSubKey("Environment");
-            return environment?.GetValue(name) as string;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
-        {
-            return null;
-        }
+            saved = true;
+            // 首次启动这条路没有 ApplySettingsCore 兜底，开机自启得在这里落地。
+            if (!startup.SetEnabled(result.StartupEnabled))
+            {
+                log.Warn($"{ErrorCodes.Unexpected} 开机自启写注册表失败，该项未生效。");
+            }
+            else
+            {
+                log.Info($"开机自启已{(result.StartupEnabled ? "启用" : "关闭")}：{startup.ExecutablePath}");
+            }
+        };
+
+        form.ShowDialog();
+        return saved;
     }
 }
 
@@ -163,13 +201,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ProviderHost _providers;
     private readonly string _configPath;
     private readonly string _logDirectory;
-    private readonly Func<string, string?> _readUserEnvironment;
     private readonly IDiagnosticsLog _log;
 
     private AppConfig _config;
     private ITranscriber _transcriber;
+    private ITextRefiner? _refiner;
     private string _hotkey;
-    private string _keySource;
     private string _currentKey;
     private SettingsForm? _settings;
     private volatile bool _settingsOpen;
@@ -180,8 +217,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
         string apiKey,
         string configPath,
         string logDirectory,
-        string keySource,
-        Func<string, string?> readUserEnvironment,
         ProviderHost providers,
         IDiagnosticsLog log)
     {
@@ -190,9 +225,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _hotkey = config.Hotkey;
         _configPath = configPath;
         _logDirectory = logDirectory;
-        _keySource = keySource;
         _currentKey = apiKey;
-        _readUserEnvironment = readUserEnvironment;
         _startup = new StartupRegistration();
         _providers = providers;
 
@@ -234,6 +267,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         _transcriber = BuildTranscriber(config, apiKey);
+        _refiner = BuildRefiner(config);
 
         _runner = new VoiceInputRunner(
             config,
@@ -242,7 +276,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
             new ClipboardPaster(config, _invokeAnchor),
             _status,
             new ToneFeedback(() => _config.Beep),
-            log);
+            log,
+            _refiner,
+            () => _config.KeepTrailingPunctuation);
 
         _hook = new KeyboardHook(message => _log.Warn(message));
         _hook.Key += OnKey;
@@ -258,6 +294,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _hook.Key -= OnKey;
             _hook.Dispose();
             (_transcriber as IDisposable)?.Dispose();
+            (_refiner as IDisposable)?.Dispose();
             _tray?.Dispose();
 
             // 降级时 _invokeAnchor 不是状态条，两处都要放掉。
@@ -282,6 +319,37 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var context = new ProviderContext(apiKey, tuning, config.ProviderOptions);
         return _providers.Create(config.Provider, context, _log);
     }
+
+    /// <summary>
+    /// 造结果优化器。选“不优化”时返回 null（状态机据此跳过这一步）；选了方式却没填
+    /// Key 也返回 null，并留一条告警——此时按原文粘贴，不阻断听写。
+    /// </summary>
+    private ITextRefiner? BuildRefiner(AppConfig config)
+    {
+        if (!RefineModes.TryParse(config.AiOptimizeMode, out var mode) || mode == RefineMode.None)
+        {
+            return null;
+        }
+
+        var apiKey = config.AiOptimizeApiKey.Trim();
+        if (apiKey.Length == 0)
+        {
+            _log.Warn(
+                $"{ErrorCodes.AiOptimizeFailed} 结果优化已选择{RefineModes.DisplayName(mode)}，"
+                + "但没有填写 API Key，本次听写按原文粘贴。");
+            return null;
+        }
+
+        return new DeepSeekTextRefiner(
+            apiKey,
+            config.AiOptimizeBaseUrl,
+            new RefineOptions(mode, config.AiOptimizeModel, config.AiOptimizeTimeoutSeconds));
+    }
+
+    private static string DescribeOptimize(AppConfig config) =>
+        RefineModes.TryParse(config.AiOptimizeMode, out var mode)
+            ? RefineModes.DisplayName(mode)
+            : config.AiOptimizeMode;
 
     /// <summary>
     /// 钩子回调在自己的线程上，这里只能做判定和投递：录音与转写都是异步的，
@@ -336,7 +404,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _config,
             _configPath,
             _logDirectory,
-            _keySource,
             _startup.IsEnabled,
             _providers.Providers.Select(provider => provider.Descriptor).ToList());
         _settings.Saved += ApplySettings;
@@ -367,22 +434,37 @@ internal sealed class TrayApplicationContext : ApplicationContext
         catch (Exception ex)
         {
             _log.Error($"{ErrorCodes.Unexpected} 应用设置失败：{ex}");
-            MessageBox.Show(
-                "设置已写入文件，但应用到运行中失败，重启程序后生效：" + ex.Message,
-                "VoiceInput",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+            Dialogs.Show(
+                null,
+                "设置未能完全应用",
+                "设置已写入文件，但应用到运行中失败，重启程序后生效。",
+                TaskDialogIcon.Warning,
+                ex.Message);
         }
     }
 
     private void ApplySettingsCore(SettingsResult result)
     {
         var updated = result.Config;
+        var previousConfig = _config;
         var hotkeyChanged = !string.Equals(updated.Hotkey, _hotkey, StringComparison.Ordinal);
         var providerChanged = !string.Equals(updated.Provider, _config.Provider, StringComparison.Ordinal);
 
+        // 只有这几项会影响优化请求，改别的（句末标点、超时）不必重建实例。
+        var refinerChanged =
+            !string.Equals(previousConfig.AiOptimizeMode, updated.AiOptimizeMode, StringComparison.Ordinal)
+            || !string.Equals(previousConfig.AiOptimizeApiKey, updated.AiOptimizeApiKey, StringComparison.Ordinal)
+            || !string.Equals(previousConfig.AiOptimizeModel, updated.AiOptimizeModel, StringComparison.Ordinal)
+            || !string.Equals(previousConfig.AiOptimizeBaseUrl, updated.AiOptimizeBaseUrl, StringComparison.Ordinal)
+            || previousConfig.AiOptimizeTimeoutSeconds != updated.AiOptimizeTimeoutSeconds;
+
         _config = updated;
         _hotkey = updated.Hotkey;
+        if (hotkeyChanged)
+        {
+            // 托盘悬停提示写着热键，改了就得刷，否则它一直是旧键。
+            _tray?.RefreshHint();
+        }
 
         if (!_startup.SetEnabled(result.StartupEnabled))
         {
@@ -393,11 +475,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _log.Info($"开机自启已{(result.StartupEnabled ? "启用" : "关闭")}：{_startup.ExecutablePath}");
         }
 
-        // Key 的优先级是“设置里填的最优先”，所以这里重新解析一次：
-        // 清空输入框时会自然回退到环境变量。
-        var effective = ApiKeyResolver.Resolve(updated.ApiKey, userEnvironment: _readUserEnvironment);
-        _keySource = effective.Found ? effective.Source : "未配置";
-        var effectiveKey = effective.Found ? effective.Key : string.Empty;
+        // Key 只有一个来源：设置里填的值（写进配置文件的 aiKey 就是它自己）。
+        var effectiveKey = updated.ApiKey.Trim();
 
         // 清空 Key 也必须算一次变化：否则旧 Key 继续在用，而界面显示“已清空”。
         var keyChanged = !string.Equals(effectiveKey, _currentKey, StringComparison.Ordinal);
@@ -409,12 +488,22 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _currentKey = effectiveKey;
             _runner.ReplaceTranscriber(_transcriber);
             _log.Info(
-                $"识别引擎已切换为 {updated.Provider}，API Key 来源 {_keySource}。");
+                $"识别引擎已切换为 {updated.Provider}，Key {(effectiveKey.Length > 0 ? "已更新" : "已清空")}。");
+        }
+
+        if (refinerChanged)
+        {
+            var previousRefiner = _refiner;
+            _refiner = BuildRefiner(updated);
+            (previousRefiner as IDisposable)?.Dispose();
+            _runner.ReplaceRefiner(_refiner);
+            _log.Info($"结果优化已更新：{DescribeOptimize(updated)}。");
         }
 
         _log.Info(
             $"设置已保存：热键 {updated.Hotkey}（{(hotkeyChanged ? "已立即生效" : "未变")}），"
-            + $"提示音 {updated.Beep}，开机自启 {result.StartupEnabled}，引擎 {updated.Provider}。");
+            + $"提示音 {updated.Beep}，开机自启 {result.StartupEnabled}，引擎 {updated.Provider}，"
+            + $"结果优化 {DescribeOptimize(updated)}。");
     }
 
     private void ExitFromTray()

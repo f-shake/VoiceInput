@@ -1,6 +1,7 @@
 using VoiceInput.Core.Asr;
 using VoiceInput.Core.Config;
 using VoiceInput.Core.Diagnostics;
+using VoiceInput.Core.Optimize;
 using VoiceInput.Core.Pipeline;
 using VoiceInput.Core.Tests.Fakes;
 
@@ -20,7 +21,9 @@ public sealed class VoiceInputRunnerTests
         ITranscriber? transcriber = null,
         FakeRecorder? recorder = null,
         FakePaster? paster = null,
-        AppConfig? config = null)
+        AppConfig? config = null,
+        ITextRefiner? refiner = null,
+        Func<bool>? keepTrailingPunctuation = null)
     {
         var rec = recorder ?? new FakeRecorder();
         var pa = paster ?? new FakePaster();
@@ -34,7 +37,9 @@ public sealed class VoiceInputRunnerTests
             pa,
             status,
             tones,
-            log);
+            log,
+            refiner,
+            keepTrailingPunctuation);
         return new Context(runner, rec, pa, status, tones, log);
     }
 
@@ -259,6 +264,145 @@ public sealed class VoiceInputRunnerTests
 
         Assert.Equal(0, transcriber.Calls);
         Assert.Empty(context.Status.Entries);
+        Assert.Equal(RunnerState.Idle, context.Runner.State);
+    }
+
+    [Fact]
+    public async Task 不优化时按原文粘贴并写明不优化()
+    {
+        var context = Build();
+
+        context.Runner.HotkeyDown();
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(new[] { "你好" }, context.Paster.Writes);
+        Assert.True(context.Log.Contains("结果优化 不优化"));
+    }
+
+    [Fact]
+    public async Task 优化成功时粘贴优化后的文本并显示优化中()
+    {
+        var refiner = new FakeRefiner { Result = "你好，世界。", Description = "fix" };
+        var context = Build(refiner: refiner);
+
+        context.Runner.HotkeyDown();
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(1, refiner.Calls);
+        Assert.Equal(new[] { "你好，世界。" }, context.Paster.Writes);
+        Assert.Contains(context.Status.Entries, entry => entry.Text == ErrorCatalog.Optimizing);
+        Assert.True(context.Log.Contains("结果优化 fix"));
+        Assert.Equal(OverlayState.Success, context.Status.LastState);
+    }
+
+    [Fact]
+    public async Task 优化失败时回退原文且仍算成功()
+    {
+        var refiner = new FakeRefiner
+        {
+            Error = new VoiceInputException(
+                ErrorCodes.AiOptimizeFailed, ErrorCatalog.AiOptimizeFailed, detail: "HTTP 500"),
+        };
+        var context = Build(refiner: refiner);
+
+        context.Runner.HotkeyDown();
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(new[] { "你好" }, context.Paster.Writes);
+        Assert.True(context.Log.Contains(ErrorCodes.AiOptimizeFailed));
+        Assert.Equal(OverlayState.Success, context.Status.LastState);
+    }
+
+    [Fact]
+    public async Task 优化结果为空时回退原文()
+    {
+        var refiner = new FakeRefiner { Result = "   " };
+        var context = Build(refiner: refiner);
+
+        context.Runner.HotkeyDown();
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(new[] { "你好" }, context.Paster.Writes);
+        Assert.True(context.Log.Contains("优化结果为空"));
+    }
+
+    [Fact]
+    public async Task 转写为空时不调用优化器()
+    {
+        var refiner = new FakeRefiner();
+        var transcriber = new FakeTranscriber { Result = new AsrResult("  ", 0, "req-empty", 0.1) };
+        var context = Build(transcriber, refiner: refiner);
+
+        context.Runner.HotkeyDown();
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(0, refiner.Calls);
+        Assert.Empty(context.Paster.Writes);
+        Assert.Equal(ErrorCatalog.NoSpeech, context.Status.LastText);
+    }
+
+    [Fact]
+    public async Task 关闭保留句末标点时去掉原文末尾标点()
+    {
+        var transcriber = new FakeTranscriber { Result = new AsrResult("你好。", 0, "req", 0.1) };
+        var context = Build(transcriber, keepTrailingPunctuation: () => false);
+
+        context.Runner.HotkeyDown();
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(new[] { "你好" }, context.Paster.Writes);
+    }
+
+    [Fact]
+    public async Task 默认保留句末标点()
+    {
+        var transcriber = new FakeTranscriber { Result = new AsrResult("你好。", 0, "req", 0.1) };
+        var context = Build(transcriber);
+
+        context.Runner.HotkeyDown();
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(new[] { "你好。" }, context.Paster.Writes);
+    }
+
+    [Fact]
+    public async Task 关闭保留句末标点时优化结果也去标点()
+    {
+        var refiner = new FakeRefiner { Result = "你好，世界。" };
+        var context = Build(refiner: refiner, keepTrailingPunctuation: () => false);
+
+        context.Runner.HotkeyDown();
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(new[] { "你好，世界" }, context.Paster.Writes);
+    }
+
+    [Fact]
+    public async Task 优化进行中状态条显示优化中且随后完成粘贴()
+    {
+        var refiner = new FakeRefiner
+        {
+            Gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var context = Build(refiner: refiner);
+
+        context.Runner.HotkeyDown();
+        var running = context.Runner.HotkeyUpAsync();
+
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!context.Status.Entries.Any(entry => entry.Text == ErrorCatalog.Optimizing)
+               && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.Contains(context.Status.Entries, entry => entry.Text == ErrorCatalog.Optimizing);
+        Assert.Equal(RunnerState.Transcribing, context.Runner.State);
+
+        refiner.Gate.SetResult("优化后的文字");
+        await running;
+
+        Assert.Equal(new[] { "优化后的文字" }, context.Paster.Writes);
         Assert.Equal(RunnerState.Idle, context.Runner.State);
     }
 }

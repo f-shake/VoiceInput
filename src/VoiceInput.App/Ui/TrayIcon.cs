@@ -9,6 +9,7 @@ public sealed class TrayIcon : IDisposable
     private readonly NotifyIcon _notify;
     private readonly ContextMenuStrip _menu;
     private readonly Icon _icon;
+    private readonly Func<string> _hotkey;
     private bool _disposed;
 
     /// <summary>托盘图标实际用的像素尺寸，写日志用：模糊的根因通常就是这里和 DPI 对不上。</summary>
@@ -16,6 +17,7 @@ public sealed class TrayIcon : IDisposable
 
     public TrayIcon(Func<string> hotkey, Action openSettings, Action exitRequested)
     {
+        _hotkey = hotkey;
         IconSize = Math.Max(16, SystemInformation.SmallIconSize.Width);
         _icon = AppIcon.Load(IconSize);
 
@@ -27,16 +29,26 @@ public sealed class TrayIcon : IDisposable
         _notify = new NotifyIcon
         {
             Icon = _icon,
-            Text = "VoiceInput",
+            // 悬停提示：热键说明挪到这里，双击空出来给“打开设置”。
+            Text = HintText(),
             Visible = true,
             ContextMenuStrip = _menu,
         };
-        _notify.DoubleClick += (_, _) => _notify.ShowBalloonTip(
-            2000,
-            "VoiceInput",
-            $"按住 {hotkey()} 说话，松开转写。",
-            ToolTipIcon.Info);
+        _notify.DoubleClick += (_, _) => openSettings();
     }
+
+    /// <summary>
+    /// 热键能在设置里改，悬停提示必须跟着变，否则它一直写着启动时那个键。
+    /// </summary>
+    public void RefreshHint()
+    {
+        if (!_disposed)
+        {
+            _notify.Text = HintText();
+        }
+    }
+
+    private string HintText() => $"VoiceInput：按住 {_hotkey()} 说话";
 
     /// <summary>资源管理器重启后托盘区被重建，图标要重新挂上去。</summary>
     public void Restore()

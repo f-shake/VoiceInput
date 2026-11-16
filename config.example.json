@@ -14,5 +14,11 @@
   "retryBackoffSeconds": [0.5, 1.5],
   "beep": true,
   "pasteDelayMilliseconds": 80,
-  "restoreClipboard": true
+  "restoreClipboard": true,
+  "aiOptimizeMode": "none",
+  "aiOptimizeApiKey": "",
+  "keepTrailingPunctuation": true,
+  "aiOptimizeModel": "deepseek-chat",
+  "aiOptimizeBaseUrl": "https://api.deepseek.com",
+  "aiOptimizeTimeoutSeconds": 8.0
 }

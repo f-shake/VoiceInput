@@ -1,9 +1,10 @@
 using System.Globalization;
+using VoiceInput.Core.Optimize;
 
 namespace VoiceInput.Core.Config;
 
 /// <summary>
-/// 配置内容。14 个字段全部可选，缺省值就是可用值，所以“没有配置文件”也能启动到
+/// 配置内容。20 个字段全部可选，缺省值就是可用值，所以“没有配置文件”也能启动到
 /// 报缺 Key 那一步，而不是先炸在空引用上。
 /// </summary>
 /// <remarks>
@@ -15,6 +16,7 @@ public sealed record AppConfig
 {
     public const string DefaultBaseUrl = "https://api.deepseek.com";
     public const string DefaultProvider = "deepseek";
+    public const string DefaultAiModel = "deepseek-chat";
     public const int MaxSecondsLimit = 118;
 
     private static readonly IReadOnlyDictionary<string, string> DefaultOptions =
@@ -55,6 +57,29 @@ public sealed record AppConfig
     public int PasteDelayMilliseconds { get; init; } = 80;
 
     public bool RestoreClipboard { get; init; } = true;
+
+    /// <summary>
+    /// 结果优化专用的 Key，与语音转写的 Key 分开：转写换一家时，优化不该跟着失效。
+    /// </summary>
+    public string AiOptimizeApiKey { get; init; } = string.Empty;
+
+    /// <summary>
+    /// 优化方式，取值见 <see cref="RefineModes"/>。默认“不优化”：升级到一个带这项
+    /// 功能的版本时，原有听写行为必须一个字节都不变，是否多花一次请求要用户自己选。
+    /// </summary>
+    public string AiOptimizeMode { get; init; } = RefineModes.None;
+
+    /// <summary>
+    /// 是否保留句末标点。这一项独立于总开关：关掉它时即使没开 AI 优化，也照样
+    /// 去掉原文末尾的标点，因为那一步不需要请求。
+    /// </summary>
+    public bool KeepTrailingPunctuation { get; init; } = true;
+
+    public string AiOptimizeModel { get; init; } = DefaultAiModel;
+
+    public string AiOptimizeBaseUrl { get; init; } = DefaultBaseUrl;
+
+    public double AiOptimizeTimeoutSeconds { get; init; } = 8.0;
 }
 
 

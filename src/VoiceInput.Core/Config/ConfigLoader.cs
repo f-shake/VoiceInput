@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using VoiceInput.Core.Diagnostics;
+using VoiceInput.Core.Optimize;
 
 namespace VoiceInput.Core.Config;
 
@@ -108,6 +109,24 @@ public static class ConfigLoader
                     case "restoreClipboard":
                         config = config with { RestoreClipboard = ReadBool(property.Name, value) };
                         break;
+                    case "aiOptimizeApiKey":
+                        config = config with { AiOptimizeApiKey = ReadString(property.Name, value) };
+                        break;
+                    case "aiOptimizeMode":
+                        config = config with { AiOptimizeMode = ReadRefineMode(value) };
+                        break;
+                    case "keepTrailingPunctuation":
+                        config = config with { KeepTrailingPunctuation = ReadBool(property.Name, value) };
+                        break;
+                    case "aiOptimizeModel":
+                        config = config with { AiOptimizeModel = ReadAiModel(value) };
+                        break;
+                    case "aiOptimizeBaseUrl":
+                        config = config with { AiOptimizeBaseUrl = ReadAiBaseUrl(value) };
+                        break;
+                    case "aiOptimizeTimeoutSeconds":
+                        config = config with { AiOptimizeTimeoutSeconds = ReadDouble(property.Name, value, 1, 60) };
+                        break;
                     case "provider":
                         config = config with { Provider = ReadProvider(value) };
                         break;
@@ -191,6 +210,12 @@ public static class ConfigLoader
         root["beep"] = config.Beep;
         root["pasteDelayMilliseconds"] = config.PasteDelayMilliseconds;
         root["restoreClipboard"] = config.RestoreClipboard;
+        root["aiOptimizeApiKey"] = config.AiOptimizeApiKey;
+        root["aiOptimizeMode"] = config.AiOptimizeMode;
+        root["keepTrailingPunctuation"] = config.KeepTrailingPunctuation;
+        root["aiOptimizeModel"] = config.AiOptimizeModel;
+        root["aiOptimizeBaseUrl"] = config.AiOptimizeBaseUrl;
+        root["aiOptimizeTimeoutSeconds"] = config.AiOptimizeTimeoutSeconds;
 
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
@@ -289,6 +314,50 @@ public static class ConfigLoader
         }
 
         return normalized;
+    }
+
+    /// <summary>
+    /// 方式只收四个规范值：写错了就在启动时报出来，而不是悄悄退回默认值——
+    /// 那会让人以为“选了却没生效”。
+    /// </summary>
+    private static string ReadRefineMode(JsonElement value)
+    {
+        var raw = ReadString("aiOptimizeMode", value);
+        if (!RefineModes.TryParse(raw, out var mode))
+        {
+            throw Invalid(
+                "aiOptimizeMode",
+                $"只接受 {RefineModes.None}、{RefineModes.Polish}、{RefineModes.Fix}、{RefineModes.Punctuation}，实际值 {raw}");
+        }
+
+        return RefineModes.ToConfigValue(mode);
+    }
+
+    private static string ReadAiModel(JsonElement value)
+    {
+        var raw = ReadString("aiOptimizeModel", value).Trim();
+        if (raw.Length == 0)
+        {
+            throw Invalid("aiOptimizeModel", "不能为空");
+        }
+
+        return raw.Length <= 64 ? raw : throw Invalid("aiOptimizeModel", "最多 64 个字符");
+    }
+
+    /// <summary>
+    /// 只接受绝对地址：相对地址只有在“程序恰好从某个目录启动”时才对，那种毛病
+    /// 换个启动方式就复现不了，不如当场报出来。校验口径与设置窗口共用
+    /// <see cref="AiEndpoint"/>，写进去的值必须读得回来。
+    /// </summary>
+    private static string ReadAiBaseUrl(JsonElement value)
+    {
+        var raw = ReadString("aiOptimizeBaseUrl", value).Trim();
+        if (!AiEndpoint.IsAbsoluteHttpUrl(raw))
+        {
+            throw Invalid("aiOptimizeBaseUrl", $"必须是 http 或 https 开头的绝对地址，实际值 {raw}");
+        }
+
+        return raw;
     }
 
     private static int? ReadNullableInt(string name, JsonElement value)
