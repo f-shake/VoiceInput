@@ -277,10 +277,12 @@ public sealed class VoiceInputRunnerTests
 
         Assert.Equal(new[] { "你好" }, context.Paster.Writes);
         Assert.True(context.Log.Contains("结果优化 不优化"));
+        Assert.Equal(OverlayState.Success, context.Status.LastState);
+        Assert.Equal("已粘贴 2 字", context.Status.LastText);
     }
 
     [Fact]
-    public async Task 优化成功时粘贴优化后的文本并显示优化中()
+    public async Task 优化成功时粘贴优化后的文本并标记已优化()
     {
         var refiner = new FakeRefiner { Result = "你好，世界。", Description = "fix" };
         var context = Build(refiner: refiner);
@@ -293,10 +295,11 @@ public sealed class VoiceInputRunnerTests
         Assert.Contains(context.Status.Entries, entry => entry.Text == ErrorCatalog.Optimizing);
         Assert.True(context.Log.Contains("结果优化 fix"));
         Assert.Equal(OverlayState.Success, context.Status.LastState);
+        Assert.Equal("已粘贴 6 字（已优化）", context.Status.LastText);
     }
 
     [Fact]
-    public async Task 优化失败时回退原文且仍算成功()
+    public async Task 优化失败时回退原文并显示橙色警告()
     {
         var refiner = new FakeRefiner
         {
@@ -310,7 +313,24 @@ public sealed class VoiceInputRunnerTests
 
         Assert.Equal(new[] { "你好" }, context.Paster.Writes);
         Assert.True(context.Log.Contains(ErrorCodes.AiOptimizeFailed));
-        Assert.Equal(OverlayState.Success, context.Status.LastState);
+        Assert.Equal(OverlayState.Warning, context.Status.LastState);
+        Assert.Equal("已粘贴 2 字（优化失败）", context.Status.LastText);
+    }
+
+    [Fact]
+    public async Task 没选模型时按优化失败显示橙色()
+    {
+        var refiner = new UnavailableRefiner("polish", "没有选择模型");
+        var context = Build(refiner: refiner);
+
+        context.Runner.HotkeyDown();
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(new[] { "你好" }, context.Paster.Writes);
+        Assert.Equal(OverlayState.Warning, context.Status.LastState);
+        Assert.Equal("已粘贴 2 字（优化失败）", context.Status.LastText);
+        Assert.True(context.Log.Contains("没有选择模型"));
+        Assert.True(context.Log.Contains(ErrorCodes.AiOptimizeFailed));
     }
 
     [Fact]

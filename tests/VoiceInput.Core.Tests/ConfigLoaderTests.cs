@@ -145,7 +145,6 @@ public sealed class ConfigLoaderTests : IDisposable
     [InlineData("hotkey", "\"\"")]
     [InlineData("aiOptimizeMode", "\"poly\"")]
     [InlineData("aiOptimizeMode", "\"\"")]
-    [InlineData("aiOptimizeModel", "\"\"")]
     [InlineData("aiOptimizeBaseUrl", "\"ftp://x\"")]
     [InlineData("aiOptimizeBaseUrl", "\"not a url\"")]
     [InlineData("aiOptimizeTimeoutSeconds", "0")]
@@ -153,6 +152,7 @@ public sealed class ConfigLoaderTests : IDisposable
     [InlineData("keepTrailingPunctuation", "\"false\"")]
     [InlineData("aiOptimizeApiKey", "123")]
     [InlineData("aiOptimizeMode", "true")]
+    [InlineData("aiOptimizeThinking", "1")]
     public void 非法取值报E16(string field, string rawValue)
     {
         var error = Assert.Throws<VoiceInputException>(
@@ -245,7 +245,8 @@ public sealed class ConfigLoaderTests : IDisposable
               "keepTrailingPunctuation": false,
               "aiOptimizeModel": "deepseek-reasoner",
               "aiOptimizeBaseUrl": "https://example.com/v1",
-              "aiOptimizeTimeoutSeconds": 12.5
+              "aiOptimizeTimeoutSeconds": 12.5,
+              "aiOptimizeThinking": true
             }
             """)).Config;
 
@@ -255,19 +256,29 @@ public sealed class ConfigLoaderTests : IDisposable
         Assert.Equal("deepseek-reasoner", config.AiOptimizeModel);
         Assert.Equal("https://example.com/v1", config.AiOptimizeBaseUrl);
         Assert.Equal(12.5, config.AiOptimizeTimeoutSeconds);
+        Assert.True(config.AiOptimizeThinking);
     }
 
     [Fact]
-    public void 结果优化缺省值是不优化()
+    public void 结果优化缺省值是不优化且模型为空()
     {
         var config = ConfigLoader.Load(Write("{}")).Config;
 
         Assert.Equal("none", config.AiOptimizeMode);
         Assert.Equal(string.Empty, config.AiOptimizeApiKey);
         Assert.True(config.KeepTrailingPunctuation);
-        Assert.Equal("deepseek-chat", config.AiOptimizeModel);
+        Assert.Equal(string.Empty, config.AiOptimizeModel);
         Assert.Equal("https://api.deepseek.com", config.AiOptimizeBaseUrl);
-        Assert.Equal(8.0, config.AiOptimizeTimeoutSeconds);
+        Assert.Equal(20.0, config.AiOptimizeTimeoutSeconds);
+        Assert.False(config.AiOptimizeThinking);
+    }
+
+    [Fact]
+    public void 模型名可以是空串()
+    {
+        var config = ConfigLoader.Load(Write("""{ "aiOptimizeModel": "" }""")).Config;
+
+        Assert.Equal(string.Empty, config.AiOptimizeModel);
     }
 
     [Fact]

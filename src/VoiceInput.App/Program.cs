@@ -199,6 +199,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly VoiceInputRunner _runner;
     private readonly StartupRegistration _startup;
     private readonly ProviderHost _providers;
+    private readonly NaudioMicRecorder _recorder;
     private readonly string _configPath;
     private readonly string _logDirectory;
     private readonly IDiagnosticsLog _log;
@@ -228,10 +229,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _currentKey = apiKey;
         _startup = new StartupRegistration();
         _providers = providers;
+        // 录音器先建：状态条画波形要靠它每块算出来的音量。
+        _recorder = new NaudioMicRecorder(config);
 
         try
         {
-            _overlay = new StatusOverlay(log, config);
+            _overlay = new StatusOverlay(log, config, () => _recorder.Level);
             // 先把窗口句柄建出来：剪贴板操作要往这个窗口上 Invoke，
             // 而且 TaskbarCreated 消息也只有已经建过句柄的窗口收得到。
             _ = _overlay.Handle;
@@ -271,7 +274,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _runner = new VoiceInputRunner(
             config,
-            new NaudioMicRecorder(config),
+            _recorder,
             _transcriber,
             new ClipboardPaster(config, _invokeAnchor),
             _status,
@@ -321,8 +324,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
     }
 
     /// <summary>
-    /// 造结果优化器。选“不优化”时返回 null（状态机据此跳过这一步）；选了方式却没填
-    /// Key 也返回 null，并留一条告警——此时按原文粘贴，不阻断听写。
+    /// 造结果优化器。选“不优化”时返回 null（状态机据此跳过这一步）；选了方式但没填
+    /// Key 或没选模型时返回一个“一调用就失败”的占位优化器，让界面显示橙色失败提示、
+    /// 日志写明原因——不能悄悄按“不优化”处理，否则用户以为优化生效了。
     /// </summary>
     private ITextRefiner? BuildRefiner(AppConfig config)
     {
@@ -331,19 +335,25 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return null;
         }
 
+        var description = RefineModes.ToConfigValue(mode);
         var apiKey = config.AiOptimizeApiKey.Trim();
         if (apiKey.Length == 0)
         {
-            _log.Warn(
-                $"{ErrorCodes.AiOptimizeFailed} 结果优化已选择{RefineModes.DisplayName(mode)}，"
-                + "但没有填写 API Key，本次听写按原文粘贴。");
-            return null;
+            _log.Warn($"{ErrorCodes.AiOptimizeFailed} 结果优化已选择{RefineModes.DisplayName(mode)}，但没有填写 API Key。");
+            return new UnavailableRefiner(description, "没有填写 API Key");
+        }
+
+        var model = config.AiOptimizeModel.Trim();
+        if (model.Length == 0)
+        {
+            _log.Warn($"{ErrorCodes.AiOptimizeFailed} 结果优化已选择{RefineModes.DisplayName(mode)}，但没有选择模型。");
+            return new UnavailableRefiner(description, "没有选择模型");
         }
 
         return new DeepSeekTextRefiner(
             apiKey,
             config.AiOptimizeBaseUrl,
-            new RefineOptions(mode, config.AiOptimizeModel, config.AiOptimizeTimeoutSeconds));
+            new RefineOptions(mode, model, config.AiOptimizeTimeoutSeconds, config.AiOptimizeThinking));
     }
 
     private static string DescribeOptimize(AppConfig config) =>
@@ -450,13 +460,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var hotkeyChanged = !string.Equals(updated.Hotkey, _hotkey, StringComparison.Ordinal);
         var providerChanged = !string.Equals(updated.Provider, _config.Provider, StringComparison.Ordinal);
 
-        // 只有这几项会影响优化请求，改别的（句末标点、超时）不必重建实例。
+        // 这几项都会进 RefineOptions 或被请求体消费，改了就重建实例：超时是构造时快照的，
+        // 不重建的话设置里改了也不会生效；句末标点不属于优化器，改它不重建。
         var refinerChanged =
             !string.Equals(previousConfig.AiOptimizeMode, updated.AiOptimizeMode, StringComparison.Ordinal)
             || !string.Equals(previousConfig.AiOptimizeApiKey, updated.AiOptimizeApiKey, StringComparison.Ordinal)
             || !string.Equals(previousConfig.AiOptimizeModel, updated.AiOptimizeModel, StringComparison.Ordinal)
             || !string.Equals(previousConfig.AiOptimizeBaseUrl, updated.AiOptimizeBaseUrl, StringComparison.Ordinal)
-            || previousConfig.AiOptimizeTimeoutSeconds != updated.AiOptimizeTimeoutSeconds;
+            || previousConfig.AiOptimizeTimeoutSeconds != updated.AiOptimizeTimeoutSeconds
+            || previousConfig.AiOptimizeThinking != updated.AiOptimizeThinking;
 
         _config = updated;
         _hotkey = updated.Hotkey;

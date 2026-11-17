@@ -25,8 +25,8 @@ internal sealed record RefineModeChoice(RefineMode Mode)
 
 /// <summary>
 /// 设置窗口，分三块：常规（提示音、开机自启、热键）、语音识别（识别引擎、API Key）、
-/// 结果优化（优化方式、独立 Key、模型、接口地址、句末标点）。其余字段是“调错就
-/// 难查”的参数（重试、超时、退避、上限），留在配置文件里手改更合适。
+/// 结果优化（优化方式、独立 Key、接口地址、模型、超时、句末标点）。其余字段是“调错就
+/// 难查”的参数（重试、退避、上限），留在配置文件里手改更合适。
 /// </summary>
 /// <remarks>
 /// 布局一律不用绝对坐标：<see cref="AutoScaleMode.Font"/> 让控件随系统字体与 DPI
@@ -60,11 +60,12 @@ public sealed class SettingsForm : Form
     private readonly TextBox _aiApiKey = new();
     private readonly ComboBox _aiModel = new();
     private readonly TextBox _aiBaseUrl = new();
+    private readonly NumericUpDown _aiTimeout = new();
 
-    /// <summary>“不优化”时要整块变灰的那几项：Key、接口地址、模型。</summary>
+    /// <summary>“不优化”时要整块变灰的那几项：Key、接口地址、模型、超时。</summary>
     private readonly TableLayoutPanel _aiAdvanced = new();
 
-    /// <summary>展开模型下拉时用它去拉接口地址上的可用模型；拉不到就保持内置候选。</summary>
+    /// <summary>展开模型下拉时用它去拉接口地址上的可用模型；拉不到就保持现有候选。</summary>
     private readonly ModelCatalog _modelCatalog = new();
 
     private bool _fetchingModels;
@@ -165,14 +166,9 @@ public sealed class SettingsForm : Form
         _aiApiKey.Width = 200;
         _aiApiKey.Margin = new Padding(6, 4, 0, 4);
 
-        // 模型是下拉选择，但允许手输：换一个兼容端点时，模型名不一定在候选里。
-        // 候选只有 BuiltInModels 这一处定义，失败回退与初始化共用，免得改一处漏一处。
+        // 模型是下拉选择，但允许手输；候选只来自接口地址上的 /models，不再预置名单
+        // （预置的模型名一旦在端点上退役，下拉里就全是错的）。
         _aiModel.DropDownStyle = ComboBoxStyle.DropDown;
-        foreach (var model in BuiltInModels)
-        {
-            _aiModel.Items.Add(model);
-        }
-
         _aiModel.Text = config.AiOptimizeModel;
         _aiModel.Width = 260;
         _aiModel.Margin = new Padding(6, 4, 0, 4);
@@ -183,8 +179,32 @@ public sealed class SettingsForm : Form
         _aiBaseUrl.Width = 260;
         _aiBaseUrl.Margin = new Padding(6, 4, 0, 4);
 
+        _aiTimeout.Minimum = 1;
+        _aiTimeout.Maximum = 60;
+        _aiTimeout.Value = Math.Clamp(
+            (decimal)config.AiOptimizeTimeoutSeconds, _aiTimeout.Minimum, _aiTimeout.Maximum);
+        _aiTimeout.Width = 70;
+        _aiTimeout.Margin = new Padding(6, 4, 4, 4);
+
+        var timeoutRow = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Margin = new Padding(0),
+        };
+        timeoutRow.Controls.Add(_aiTimeout);
+        timeoutRow.Controls.Add(new Label
+        {
+            Text = "秒",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(0, 8, 0, 0),
+        });
+
         _aiAdvanced.ColumnCount = 2;
-        _aiAdvanced.RowCount = 3;
+        _aiAdvanced.RowCount = 4;
         _aiAdvanced.AutoSize = true;
         _aiAdvanced.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         _aiAdvanced.Dock = DockStyle.Fill;
@@ -198,6 +218,8 @@ public sealed class SettingsForm : Form
         _aiAdvanced.Controls.Add(_aiBaseUrl, 1, 1);
         _aiAdvanced.Controls.Add(FieldLabel("模型"), 0, 2);
         _aiAdvanced.Controls.Add(_aiModel, 1, 2);
+        _aiAdvanced.Controls.Add(FieldLabel("超时"), 0, 3);
+        _aiAdvanced.Controls.Add(timeoutRow, 1, 3);
 
         var optimizeLayout = new TableLayoutPanel
         {
@@ -292,7 +314,7 @@ public sealed class SettingsForm : Form
         CancelButton = cancel;
 
         // 事件必须在控件都建好之后再挂：初始化时改 SelectedIndex 也会触发它。
-        _aiMode.SelectedIndexChanged += (_, _) => ApplyModeState();
+        _aiMode.SelectedIndexChanged += (_, _) => ApplyModeState(autoFetch: true);
         ApplyModeState();
     }
 
@@ -341,18 +363,28 @@ public sealed class SettingsForm : Form
     };
 
     /// <summary>
-    /// 选了“不优化”就把 Key、模型、地址变灰：它们此刻用不上，留着可编辑只会让人
+    /// 选了“不优化”就把 Key、模型、地址、超时变灰：它们此刻用不上，留着可编辑只会让人
     /// 以为还在生效。句末标点不在其中，它与优化方式无关。
+    /// 切到需要优化的方式且模型还空着时，顺手展开下拉拉一次候选。
     /// </summary>
-    private void ApplyModeState()
+    private void ApplyModeState(bool autoFetch = false)
     {
         var mode = (_aiMode.SelectedItem as RefineModeChoice)?.Mode ?? RefineMode.None;
         _aiAdvanced.Enabled = mode != RefineMode.None;
+
+        if (autoFetch
+            && mode != RefineMode.None
+            && _aiModel.Text.Trim().Length == 0
+            && _aiModel.Items.Count == 0)
+        {
+            // 设置 DroppedDown 会触发 DropDown 事件，拉取逻辑只有那一处。
+            _aiModel.DroppedDown = true;
+        }
     }
 
     /// <summary>
-    /// 展开下拉时按当前接口地址与 Key 拉一次可用模型：模型名跟着端点走，写死一份候选
-    /// 迟早过期。拉不到就退回内置候选并弹出原因——模型名本来也能手输。
+    /// 展开下拉时按当前接口地址与 Key 拉一次可用模型：候选只来自端点，不预置名单。
+    /// 拉不到就保持现有候选并弹出原因——模型名本来也能手输。
     /// </summary>
     private async void OnAiModelDropDown(object? sender, EventArgs e)
     {
@@ -414,16 +446,18 @@ public sealed class SettingsForm : Form
         }
     }
 
-    private static readonly string[] BuiltInModels = { AppConfig.DefaultAiModel, "deepseek-reasoner" };
-
     /// <summary>
-    /// 失败时把候选退回内置两项再报错：对话框写的是“候选仍是内置的两项”，列表就必须真是。
-    /// 收起下拉也在这里统一做，免得模态框压在悬停的列表上。
+    /// 失败时收起下拉并保持现有候选（初始为空，不做假的预置），再报错。
+    /// 对话框里不能再说“候选仍是内置的两项”——现在没有内置两项了。
     /// </summary>
     private void FailModelFetch(string detail, string current)
     {
         _aiModel.DroppedDown = false;
-        ReplaceModelItems(BuiltInModels, current);
+        if (string.IsNullOrEmpty(_aiModel.Text))
+        {
+            _aiModel.Text = current;
+        }
+
         ShowModelFetchError(detail);
     }
 
@@ -455,7 +489,7 @@ public sealed class SettingsForm : Form
         Dialogs.Show(
             this,
             "无法获取模型列表",
-            "候选仍是内置的两项，也可以直接手输模型名。",
+            "候选保持原样，也可以直接手输模型名。",
             TaskDialogIcon.Error,
             detail);
 
@@ -490,11 +524,11 @@ public sealed class SettingsForm : Form
 
         if (selectedMode == RefineMode.None)
         {
-            // 选“不优化”时这三项是灰的，不能拿它们拦住保存；但配置里必须有能读回来的值，
-            // 否则下次启动会报 E16，所以空值与非法值回落到默认。
-            if (aiModel.Length is 0 or > 64)
+            // 选“不优化”时这几项是灰的，不能拿它们拦住保存；但要保证写回去的值能被
+            // ConfigLoader 读回来：超长模型名清空（模型允许为空），非法地址回落到默认。
+            if (aiModel.Length > 64)
             {
-                aiModel = AppConfig.DefaultAiModel;
+                aiModel = string.Empty;
             }
 
             if (!AiEndpoint.IsAbsoluteHttpUrl(aiBaseUrl))
@@ -510,16 +544,22 @@ public sealed class SettingsForm : Form
                 return;
             }
 
-            if (aiModel.Length == 0)
-            {
-                Dialogs.Show(this, "模型名不能为空", "结果优化需要填写模型名。", TaskDialogIcon.Warning);
-                return;
-            }
-
             if (aiModel.Length > 64)
             {
                 Dialogs.Show(this, "模型名过长", "结果优化的模型名最多 64 个字符。", TaskDialogIcon.Warning);
                 return;
+            }
+
+            if (aiModel.Length == 0)
+            {
+                // 不拦保存：空模型是合法配置（听写时按原文粘贴并显示橙色提示），
+                // 为了它把这次改的热键、超时一起丢掉不划算。
+                Dialogs.Show(
+                    this,
+                    "还没有选模型",
+                    "请展开模型下拉，从接口地址返回的列表里选一个；也可以直接手输模型名。"
+                    + "保存后听写会按原文粘贴，并显示优化失败的橙色提示。",
+                    TaskDialogIcon.Warning);
             }
 
             if (!AiEndpoint.IsAbsoluteHttpUrl(aiBaseUrl))
@@ -550,6 +590,7 @@ public sealed class SettingsForm : Form
             KeepTrailingPunctuation = _keepTrailingPunctuation.Checked,
             AiOptimizeModel = aiModel,
             AiOptimizeBaseUrl = aiBaseUrl,
+            AiOptimizeTimeoutSeconds = (double)_aiTimeout.Value,
         };
 
         try

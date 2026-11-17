@@ -15,13 +15,36 @@ public sealed class DeepSeekTextRefinerTests
         HttpMessageHandler handler,
         RefineMode mode = RefineMode.Fix,
         double timeoutSeconds = 5,
-        string baseUrl = "https://api.example.com")
+        string baseUrl = "https://api.example.com",
+        bool thinking = false)
     {
         return new DeepSeekTextRefiner(
             "sk-test",
             baseUrl,
-            new RefineOptions(mode, "deepseek-chat", timeoutSeconds),
+            new RefineOptions(mode, "deepseek-chat", timeoutSeconds, thinking),
             handler);
+    }
+
+    [Fact]
+    public async Task 默认请求体显式关闭思考()
+    {
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("你好。"));
+        using var refiner = Build(handler);
+
+        await refiner.RefineAsync("你好", CancellationToken.None);
+
+        Assert.Contains("\"thinking\":{\"type\":\"disabled\"}", handler.LastBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task 打开思考时请求体不再带关闭字段()
+    {
+        var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("你好。"));
+        using var refiner = Build(handler, thinking: true);
+
+        await refiner.RefineAsync("你好", CancellationToken.None);
+
+        Assert.DoesNotContain("thinking", handler.LastBody, StringComparison.Ordinal);
     }
 
     [Fact]

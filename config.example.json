@@ -18,7 +18,8 @@
   "aiOptimizeMode": "none",
   "aiOptimizeApiKey": "",
   "keepTrailingPunctuation": true,
-  "aiOptimizeModel": "deepseek-chat",
+  "aiOptimizeModel": "",
   "aiOptimizeBaseUrl": "https://api.deepseek.com",
-  "aiOptimizeTimeoutSeconds": 8.0
+  "aiOptimizeTimeoutSeconds": 20.0,
+  "aiOptimizeThinking": false
 }

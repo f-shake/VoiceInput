@@ -109,17 +109,26 @@ public sealed class DeepSeekTextRefiner : ITextRefiner, IDisposable
     private HttpRequestMessage BuildRequest(string text)
     {
         // 温度 0：校对要的是稳定复现，不是多样表达。
-        var payload = new
+        // 默认显式关掉思考：该端点默认会思考，校对不需要，实测耗时翻倍且容易超时。
+        // 个别端点不认这个字段而返回 400 时，按优化失败回退原文；把 aiOptimizeThinking
+        // 设成 true 就能退回旧行为。
+        // 用字典而不是两个匿名对象：公共字段只写一份，免得改模型/温度时只改到其中一条路径。
+        var payload = new Dictionary<string, object?>
         {
-            model = _options.Model,
-            messages = new object[]
+            ["model"] = _options.Model,
+            ["messages"] = new object[]
             {
                 new { role = "system", content = RefinePrompt.Build(_options.Mode) },
                 new { role = "user", content = text },
             },
-            stream = false,
-            temperature = 0,
+            ["stream"] = false,
+            ["temperature"] = 0,
         };
+
+        if (!_options.Thinking)
+        {
+            payload["thinking"] = new { type = "disabled" };
+        }
 
         var request = new HttpRequestMessage(HttpMethod.Post, _baseUrl + ChatPath)
         {

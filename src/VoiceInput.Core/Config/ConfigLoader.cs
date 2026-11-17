@@ -127,6 +127,9 @@ public static class ConfigLoader
                     case "aiOptimizeTimeoutSeconds":
                         config = config with { AiOptimizeTimeoutSeconds = ReadDouble(property.Name, value, 1, 60) };
                         break;
+                    case "aiOptimizeThinking":
+                        config = config with { AiOptimizeThinking = ReadBool(property.Name, value) };
+                        break;
                     case "provider":
                         config = config with { Provider = ReadProvider(value) };
                         break;
@@ -216,6 +219,7 @@ public static class ConfigLoader
         root["aiOptimizeModel"] = config.AiOptimizeModel;
         root["aiOptimizeBaseUrl"] = config.AiOptimizeBaseUrl;
         root["aiOptimizeTimeoutSeconds"] = config.AiOptimizeTimeoutSeconds;
+        root["aiOptimizeThinking"] = config.AiOptimizeThinking;
 
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
@@ -333,14 +337,10 @@ public static class ConfigLoader
         return RefineModes.ToConfigValue(mode);
     }
 
+    /// <summary>模型名可以为空：候选由端点决定，没选过时就是空的。</summary>
     private static string ReadAiModel(JsonElement value)
     {
         var raw = ReadString("aiOptimizeModel", value).Trim();
-        if (raw.Length == 0)
-        {
-            throw Invalid("aiOptimizeModel", "不能为空");
-        }
-
         return raw.Length <= 64 ? raw : throw Invalid("aiOptimizeModel", "最多 64 个字符");
     }
 

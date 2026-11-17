@@ -35,7 +35,7 @@ public sealed class ConfigSaveTests : IDisposable
     };
 
     [Fact]
-    public void 新文件写出全部二十个字段()
+    public void 新文件写出全部二十一个字段()
     {
         var path = PathOf();
 
@@ -50,7 +50,7 @@ public sealed class ConfigSaveTests : IDisposable
                      "retries", "retryBackoffSeconds", "beep", "pasteDelayMilliseconds",
                      "restoreClipboard", "aiOptimizeMode", "aiOptimizeApiKey",
                      "keepTrailingPunctuation", "aiOptimizeModel", "aiOptimizeBaseUrl",
-                     "aiOptimizeTimeoutSeconds",
+                     "aiOptimizeTimeoutSeconds", "aiOptimizeThinking",
                  })
         {
             Assert.True(root.TryGetProperty(name, out _), name);
@@ -69,6 +69,7 @@ public sealed class ConfigSaveTests : IDisposable
             AiOptimizeModel = "deepseek-reasoner",
             AiOptimizeBaseUrl = "https://example.com/v1",
             AiOptimizeTimeoutSeconds = 15,
+            AiOptimizeThinking = true,
         };
 
         ConfigLoader.Save(path, saved);
@@ -80,6 +81,7 @@ public sealed class ConfigSaveTests : IDisposable
         Assert.Equal(saved.AiOptimizeModel, loaded.AiOptimizeModel);
         Assert.Equal(saved.AiOptimizeBaseUrl, loaded.AiOptimizeBaseUrl);
         Assert.Equal(saved.AiOptimizeTimeoutSeconds, loaded.AiOptimizeTimeoutSeconds);
+        Assert.Equal(saved.AiOptimizeThinking, loaded.AiOptimizeThinking);
     }
 
     [Fact]

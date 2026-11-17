@@ -6,8 +6,8 @@ namespace VoiceInput.Core.Optimize;
 /// <summary>
 /// 从接口地址拉取可用模型列表（OpenAI 兼容的 GET /models），只给设置窗口的下拉用。
 ///
-/// 拉取失败一律抛异常，由调用方决定怎么办：设置窗口的做法是保持内置候选，
-/// 绝不因为一次预取失败打断用户的设置操作。这里不做重试——用户正盯着下拉框。
+/// 拉取失败一律抛异常，由调用方决定怎么办：设置窗口会保持现有候选并弹错误框。
+/// 这里不做重试——用户正盯着下拉框。
 /// </summary>
 public sealed class ModelCatalog : IDisposable
 {
@@ -75,7 +75,7 @@ public sealed class ModelCatalog : IDisposable
 
     /// <summary>
     /// 兼容两种形状：OpenAI 的 <c>{"data":[{"id":"…"}]}</c>，以及直接返回字符串数组的
-    /// 简化端点。认不出的形状按“没有模型”处理，由调用方回退到内置候选。
+    /// 简化端点。认不出的形状按“没有模型”处理，由调用方决定接着怎么提示。
     /// </summary>
     private static IReadOnlyList<string> Parse(string body)
     {

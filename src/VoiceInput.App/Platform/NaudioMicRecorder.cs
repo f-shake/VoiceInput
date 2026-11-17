@@ -1,4 +1,5 @@
 using NAudio.Wave;
+using VoiceInput.Core.Asr;
 using VoiceInput.Core.Config;
 using VoiceInput.Core.Diagnostics;
 using VoiceInput.Core.Pipeline;
@@ -19,10 +20,20 @@ public sealed class NaudioMicRecorder : IRecorder
 
     private readonly AppConfig _config;
 
+    /// <summary>
+    /// 最近一块音频的音量（0~1）。状态条每帧来取一次，用来画随声音起伏的波形——
+    /// 这是“麦克风真的在收音”的唯一可信证据，所以必须是实测值，不能自己编动画。
+    /// </summary>
+    private volatile float _level;
+
     public NaudioMicRecorder(AppConfig config) => _config = config;
+
+    /// <summary>0 表示安静或没在录。</summary>
+    public float Level => _level;
 
     public Recording Record(CancellationToken stopToken)
     {
+        _level = 0;
         // -1 才是 WAVE_MAPPER（系统默认设备）；0 是 0 号设备，
         // 大多数机器上都不是用户以为的那个麦克风。
         var deviceNumber = _config.DeviceNumber ?? -1;
@@ -40,6 +51,8 @@ public sealed class NaudioMicRecorder : IRecorder
 
         capture.DataAvailable += (_, args) =>
         {
+            // 音量先在采集线程上算好：状态条那边每 33 毫秒取一次，不能让它去遍历 PCM。
+            _level = AudioLevel.FromPcm16Le(args.Buffer.AsSpan(0, args.BytesRecorded));
             lock (buffer)
             {
                 if (buffer.Length < maxBytes)
@@ -93,6 +106,7 @@ public sealed class NaudioMicRecorder : IRecorder
         }
 
         stopped.Wait(TimeSpan.FromSeconds(2));
+        _level = 0;
 
         if (stopError is not null)
         {

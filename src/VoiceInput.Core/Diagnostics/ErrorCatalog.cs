@@ -103,6 +103,10 @@ public static class ErrorCatalog
 
     public static string Pasted(int chars) => $"已粘贴 {chars} 字";
 
+    public static string Optimized(int chars) => $"已粘贴 {chars} 字（已优化）";
+
+    public static string OptimizeFailedPasted(int chars) => $"已粘贴 {chars} 字（优化失败）";
+
     /// <summary>
     /// 状态条放不下就截断：完整文案写日志，状态条只留一眼能看完的部分，
     /// 免得一条长错误把右下角挡住。
@@ -138,6 +142,8 @@ public static class ErrorCatalog
         Optimizing,
         AiOptimizeFailed,
         Pasted(12),
+        Optimized(12),
+        OptimizeFailedPasted(12),
         NetworkFailed(2),
         ServiceUnavailable(2),
         Truncated(118),

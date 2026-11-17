@@ -19,6 +19,9 @@ public enum OverlayState
     Recording,
     Transcribing,
     Success,
+
+    /// <summary>粘贴成功但结果优化失败：橙色，与红色的整体失败区分开。</summary>
+    Warning,
     Failure,
 }
 
@@ -279,6 +282,8 @@ public sealed class VoiceInputRunner
 
         var text = result.Text;
         var optimizeNote = "结果优化 不优化";
+        var optimizeApplied = false;
+        var optimizeFailed = false;
         if (_refiner is { } refiner)
         {
             _status.Show(OverlayState.Transcribing, ErrorCatalog.Optimizing);
@@ -293,6 +298,7 @@ public sealed class VoiceInputRunner
                         ErrorCodes.AiOptimizeFailed, ErrorCatalog.AiOptimizeFailed, detail: "优化结果为空");
                 }
 
+                optimizeApplied = true;
                 optimizeNote =
                     $"结果优化 {refiner.Description}，优化耗时 {stopwatch.Elapsed.TotalMilliseconds:F0} 毫秒";
             }
@@ -301,12 +307,14 @@ public sealed class VoiceInputRunner
                 _log.Warn($"{ex.Code} {ErrorCatalog.AiOptimizeFailed} 原因：{ex.Detail ?? ex.UserMessage}");
                 text = result.Text;
                 optimizeNote = FallbackNote;
+                optimizeFailed = true;
             }
             catch (Exception ex)
             {
                 _log.Warn($"{ErrorCodes.AiOptimizeFailed} {ErrorCatalog.AiOptimizeFailed} 原因：{ex.Message}");
                 text = result.Text;
                 optimizeNote = FallbackNote;
+                optimizeFailed = true;
             }
         }
 
@@ -338,7 +346,16 @@ public sealed class VoiceInputRunner
         _log.Info(
             $"已粘贴 {text.Length} 字，服务端 {result.DurationMs} 毫秒，" +
             $"耗时 {result.ElapsedSeconds:F2} 秒，request_id={result.RequestId}，{optimizeNote}。");
-        _status.Show(OverlayState.Success, ErrorCatalog.ClampForStatus(ErrorCatalog.Pasted(text.Length)));
+
+        // 优化失败但粘贴成功时用橙色：红叉是“这次没成功”，橙圆是“文字进去了，
+        // 但优化没生效”，两者的处置完全不同。
+        var state = optimizeFailed ? OverlayState.Warning : OverlayState.Success;
+        var message = optimizeFailed
+            ? ErrorCatalog.OptimizeFailedPasted(text.Length)
+            : optimizeApplied
+                ? ErrorCatalog.Optimized(text.Length)
+                : ErrorCatalog.Pasted(text.Length);
+        _status.Show(state, ErrorCatalog.ClampForStatus(message));
     }
 
     private void Fail(string message) =>

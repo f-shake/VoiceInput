@@ -8,7 +8,7 @@ namespace VoiceInput.App.Ui;
 
 /// <summary>
 /// 屏幕底部水平居中的小圆：录音中是蓝色麦克风加外圈进度，转写中是三个点，成功变绿打勾，
-/// 失败变红加感叹号并在圆上方挂一句原因。
+/// 优化失败变橙画叹号，整体失败变红画叉，并在圆上方挂一句原因。
 ///
 /// 窗口整体鼠标穿透、不抢焦点、不进 Alt+Tab；形状靠 Region 裁出来，所以圆外的透明
 /// 角落既看不见也点不到。
@@ -35,6 +35,7 @@ public sealed class StatusOverlay : Form, IStatusView
     private static readonly Color TranscribingColor = Color.FromArgb(0x2F, 0x6F, 0xEB);
     private static readonly Color SuccessColor = Color.FromArgb(0x22, 0xA5, 0x5E);
     private static readonly Color FailureColor = Color.FromArgb(0xD9, 0x3A, 0x3A);
+    private static readonly Color WarningColor = Color.FromArgb(0xE0, 0x8A, 0x00);
     private static readonly Color BubbleColor = Color.FromArgb(0x1C, 0x1C, 0x1E);
 
     private static readonly TextFormatFlags BubbleTextFlags =
@@ -45,7 +46,11 @@ public sealed class StatusOverlay : Form, IStatusView
     private readonly System.Windows.Forms.Timer _tick = new() { Interval = TickMilliseconds };
     private readonly System.Windows.Forms.Timer _autoHide = new() { Interval = AutoHideMilliseconds };
     private readonly IDiagnosticsLog? _log;
+    private readonly Func<float>? _levelSource;
     private readonly Font _bubbleFont = new("Microsoft YaHei UI", 9f, FontStyle.Regular);
+
+    /// <summary>平滑后的音量，上升即时、下降慢放，免得条子跟着麦克风噪声乱闪。</summary>
+    private float _smoothedLevel;
 
     private OverlayState _state = OverlayState.Hidden;
     private string _bubbleText = string.Empty;
@@ -53,9 +58,10 @@ public sealed class StatusOverlay : Form, IStatusView
     private Region? _region;
     private int _maxSeconds = 118;
 
-    public StatusOverlay(IDiagnosticsLog? log = null, AppConfig? config = null)
+    public StatusOverlay(IDiagnosticsLog? log = null, AppConfig? config = null, Func<float>? level = null)
     {
         _log = log;
+        _levelSource = level;
         _maxSeconds = Math.Max(1, config?.MaxSeconds ?? 118);
         Icon = AppIcon.Shared;
         FormBorderStyle = FormBorderStyle.None;
@@ -163,7 +169,7 @@ public sealed class StatusOverlay : Form, IStatusView
         {
             case OverlayState.Recording:
                 DrawProgressRing(graphics, circle, ringWidth);
-                DrawWaveform(graphics, center, iconDiameter, scale);
+                DrawWaveform(graphics, center, iconDiameter, scale, CurrentLevel());
                 break;
             case OverlayState.Transcribing:
                 DrawDots(graphics, center, iconDiameter, scale);
@@ -171,15 +177,32 @@ public sealed class StatusOverlay : Form, IStatusView
             case OverlayState.Success:
                 DrawCheck(graphics, center, iconDiameter, scale);
                 break;
+            case OverlayState.Warning:
+                DrawExclamation(graphics, center, iconDiameter, scale);
+                break;
             case OverlayState.Failure:
                 DrawCross(graphics, center, iconDiameter, scale);
                 break;
         }
     }
 
+    /// <summary>
+    /// 取一次麦克风音量并平滑。上升即时是为了“一开口就有反应”，下降放慢是因为
+    /// 真实音量本来就抖，照搬会闪成噪点。
+    /// </summary>
+    private float CurrentLevel()
+    {
+        var target = Math.Clamp(_levelSource?.Invoke() ?? 0, 0, 1);
+        _smoothedLevel = target > _smoothedLevel
+            ? target
+            : _smoothedLevel + ((target - _smoothedLevel) * 0.15f);
+        return _smoothedLevel;
+    }
+
     private Color StateColor() => _state switch
     {
         OverlayState.Success => SuccessColor,
+        OverlayState.Warning => WarningColor,
         OverlayState.Failure => FailureColor,
         OverlayState.Transcribing => TranscribingColor,
         _ => RecordingColor,
@@ -242,9 +265,9 @@ public sealed class StatusOverlay : Form, IStatusView
 
     /// <summary>
     /// 录音中用四根高低不一的竖条（波形），24 像素下也一眼认得出是“在听”。
-    /// 原来画的“麦克风”在这个尺寸下就是个竖条加一道弧，看起来像小写 i 加笑脸。
+    /// 条高由麦克风实际音量决定：安静时压得很矮，说话越大越高。
     /// </summary>
-    private static void DrawWaveform(Graphics graphics, Point center, int diameter, float scale)
+    private static void DrawWaveform(Graphics graphics, Point center, int diameter, float scale, float level)
     {
         var barWidth = Math.Max(2, (int)(2.4f * scale));
         var gap = Math.Max(2, (int)(2.6f * scale));
@@ -253,10 +276,12 @@ public sealed class StatusOverlay : Form, IStatusView
         var totalWidth = (barWidth * factors.Length) + (gap * (factors.Length - 1));
         var left = center.X - (totalWidth / 2);
 
+        // 0.15 是静音时的底：条子还在，证明在录；1.0 是满格。
+        var gain = 0.15f + (0.85f * Math.Clamp(level, 0, 1));
         using var brush = new SolidBrush(Color.White);
         foreach (var factor in factors)
         {
-            var height = Math.Max(barWidth, (int)(diameter * 0.62f * factor));
+            var height = Math.Max(barWidth, (int)(diameter * 0.62f * factor * gain));
             var bar = new Rectangle(left, center.Y - (height / 2), barWidth, height);
             using var path = RoundedRect(bar, barWidth / 2);
             graphics.FillPath(brush, path);
@@ -264,7 +289,26 @@ public sealed class StatusOverlay : Form, IStatusView
         }
     }
 
-    /// <summary>失败用叉号：感叹号在这个尺寸下和小写 i 难以分辨。</summary>
+    /// <summary>橙色警告用叹号：和红色的叉一眼能分开。</summary>
+    private static void DrawExclamation(Graphics graphics, Point center, int diameter, float scale)
+    {
+        var width = Math.Max(2f, 1.8f * scale);
+        using var pen = new Pen(Color.White, width)
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round,
+        };
+
+        var top = center.Y - (diameter * 0.20f);
+        var bottom = center.Y + (diameter * 0.02f);
+        graphics.DrawLine(pen, center.X, top, center.X, bottom);
+
+        var radius = Math.Max(1.2f, width * 0.62f);
+        using var brush = new SolidBrush(Color.White);
+        graphics.FillEllipse(brush, center.X - radius, center.Y + (diameter * 0.12f), radius * 2, radius * 2);
+    }
+
+    /// <summary>失败用叉号：感叹号在这个尺寸下容易和警告混淆，所以两者形状必须不同。</summary>
     private static void DrawCross(Graphics graphics, Point center, int diameter, float scale)
     {
         var width = Math.Max(2f, 1.7f * scale);
@@ -343,9 +387,8 @@ public sealed class StatusOverlay : Form, IStatusView
             _stateSinceUtc = DateTime.UtcNow;
         }
 
-        // 只有失败才在圆上方挂一句话：平时屏幕上只留一个小圆。
-        // 录音中只留波形（气泡会挡住正在输入的那行）；其余状态都带一句文案：
-// 截断提示和“已粘贴 N 字”都在这条路径上，只打勾会让用户看不到。
+        // 录音中不挂气泡（会挡住正在输入的那行，波形本身就够看）；其余状态都带一句文案：
+        // 截断提示、“已粘贴 N 字（已优化/优化失败）”都在这条路径上，只变颜色会让用户看不到字数。
         _bubbleText = state == OverlayState.Recording ? string.Empty : text;
 
         LayoutWindow();
@@ -365,9 +408,13 @@ public sealed class StatusOverlay : Form, IStatusView
         {
             _tick.Start();
         }
-        else if (state is OverlayState.Success or OverlayState.Failure)
+        else
         {
-            _autoHide.Start();
+            _smoothedLevel = 0;
+            if (state is OverlayState.Success or OverlayState.Warning or OverlayState.Failure)
+            {
+                _autoHide.Start();
+            }
         }
     }
 

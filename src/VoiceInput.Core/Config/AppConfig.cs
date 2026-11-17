@@ -4,7 +4,7 @@ using VoiceInput.Core.Optimize;
 namespace VoiceInput.Core.Config;
 
 /// <summary>
-/// 配置内容。20 个字段全部可选，缺省值就是可用值，所以“没有配置文件”也能启动到
+/// 配置内容。21 个字段全部可选，缺省值就是可用值，所以“没有配置文件”也能启动到
 /// 报缺 Key 那一步，而不是先炸在空引用上。
 /// </summary>
 /// <remarks>
@@ -16,7 +16,6 @@ public sealed record AppConfig
 {
     public const string DefaultBaseUrl = "https://api.deepseek.com";
     public const string DefaultProvider = "deepseek";
-    public const string DefaultAiModel = "deepseek-chat";
     public const int MaxSecondsLimit = 118;
 
     private static readonly IReadOnlyDictionary<string, string> DefaultOptions =
@@ -75,11 +74,22 @@ public sealed record AppConfig
     /// </summary>
     public bool KeepTrailingPunctuation { get; init; } = true;
 
-    public string AiOptimizeModel { get; init; } = DefaultAiModel;
+    /// <summary>
+    /// 模型名。没有预置值：候选由接口地址上的 /models 决定，写死的名单迟早过时。
+    /// 为空表示还没选过，此时选“不优化”之外的方式会按“无可用模型”告警并原文粘贴。
+    /// </summary>
+    public string AiOptimizeModel { get; init; } = string.Empty;
 
     public string AiOptimizeBaseUrl { get; init; } = DefaultBaseUrl;
 
-    public double AiOptimizeTimeoutSeconds { get; init; } = 8.0;
+    /// <summary>优化请求的超时，秒。默认 20：实测该端点开着思考时要 2 秒以上。</summary>
+    public double AiOptimizeTimeoutSeconds { get; init; } = 20.0;
+
+    /// <summary>
+    /// 是否让模型“思考”。默认关：校对不需要推理，开着时实测耗时翻倍且容易超时。
+    /// 只在配置文件里改，设置窗口不放它。
+    /// </summary>
+    public bool AiOptimizeThinking { get; init; }
 }
 
 
