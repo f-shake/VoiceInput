@@ -28,7 +28,7 @@ public sealed class ProviderConfigTests : IDisposable
     }
 
     [Fact]
-    public void 不写时默认用deepseek且带默认基址()
+    public void DefaultsToDeepSeekWithDefaultBaseUrl()
     {
         var config = ConfigLoader.Load(Write("{}")).Config;
 
@@ -37,7 +37,7 @@ public sealed class ProviderConfigTests : IDisposable
     }
 
     [Fact]
-    public void 显式引擎与选项都能读出来()
+    public void ExplicitProviderAndOptionsAreRead()
     {
         var config = ConfigLoader.Load(Write("""
             {
@@ -53,7 +53,7 @@ public sealed class ProviderConfigTests : IDisposable
     }
 
     [Fact]
-    public void 选项里的baseUrl会覆盖默认基址()
+    public void BaseUrlOptionOverridesDefaultBaseUrl()
     {
         var config = ConfigLoader.Load(Write("""
             { "providerOptions": { "baseUrl": "https://proxy.example.com" } }
@@ -69,7 +69,7 @@ public sealed class ProviderConfigTests : IDisposable
     [InlineData("\"带中文\"")]
     [InlineData("\"a/b\"")]
     [InlineData("\"../../../etc\"")]
-    public void 引擎标识只接受安全字符(string raw)
+    public void ProviderIdAcceptsOnlySafeCharacters(string raw)
     {
         var error = Assert.Throws<VoiceInputException>(
             () => ConfigLoader.Load(Write($"{{ \"provider\": {raw} }}")));
@@ -79,13 +79,13 @@ public sealed class ProviderConfigTests : IDisposable
     }
 
     [Fact]
-    public void 引擎标识统一转成小写()
+    public void ProviderIdIsLowercased()
     {
         Assert.Equal("deepseek", ConfigLoader.Load(Write("""{ "provider": "DeepSeek" }""")).Config.Provider);
     }
 
     [Fact]
-    public void 选项不是对象要报错()
+    public void NonObjectOptionsFail()
     {
         var error = Assert.Throws<VoiceInputException>(
             () => ConfigLoader.Load(Write("""{ "providerOptions": [] }""")));
@@ -94,7 +94,7 @@ public sealed class ProviderConfigTests : IDisposable
     }
 
     [Fact]
-    public void 选项值必须是字符串()
+    public void OptionValuesMustBeStrings()
     {
         var error = Assert.Throws<VoiceInputException>(
             () => ConfigLoader.Load(Write("""{ "providerOptions": { "port": 8080 } }""")));
@@ -105,7 +105,7 @@ public sealed class ProviderConfigTests : IDisposable
     }
 
     [Fact]
-    public void 写回后引擎与选项不丢()
+    public void ProviderAndOptionsSurviveSave()
     {
         var path = Path.Combine(_directory, "config.json");
         var saved = new AppConfig
@@ -122,7 +122,7 @@ public sealed class ProviderConfigTests : IDisposable
     }
 
     [Fact]
-    public void 写回时保留文件里手写的其它字段()
+    public void SaveKeepsHandwrittenFieldsInFile()
     {
         var path = Path.Combine(_directory, "config.json");
         File.WriteAllText(path, """{ "myOwnNote": "别删我" }""");

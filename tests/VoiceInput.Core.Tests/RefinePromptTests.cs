@@ -9,7 +9,7 @@ public sealed class RefinePromptTests
 
     [Theory]
     [MemberData(nameof(Modes))]
-    public void 三种方式都有公共约束与只输出结果的要求(RefineMode mode)
+    public void AllModesShareCommonConstraintsAndOutputOnlyRule(RefineMode mode)
     {
         var prompt = RefinePrompt.Build(mode);
 
@@ -20,7 +20,7 @@ public sealed class RefinePromptTests
     }
 
     [Fact]
-    public void 三种方式的提示词互不相同()
+    public void ThreeModesProduceDistinctPrompts()
     {
         var prompts = new[] { RefineMode.Polish, RefineMode.Fix, RefineMode.Punctuation }
             .Select(RefinePrompt.Build)
@@ -30,7 +30,7 @@ public sealed class RefinePromptTests
     }
 
     [Fact]
-    public void 仅修复标点明确禁止改动文字()
+    public void PunctuationModeForbidsAnyTextChanges()
     {
         var prompt = RefinePrompt.Build(RefineMode.Punctuation);
 
@@ -39,7 +39,7 @@ public sealed class RefinePromptTests
     }
 
     [Fact]
-    public void 修复错别字模式禁止删词与调语序()
+    public void FixModeForbidsDeletingWordsAndReordering()
     {
         var prompt = RefinePrompt.Build(RefineMode.Fix);
 
@@ -48,7 +48,7 @@ public sealed class RefinePromptTests
     }
 
     [Fact]
-    public void 润色模式允许删语气词与微调语序()
+    public void PolishModeAllowsRemovingFillersAndReordering()
     {
         var prompt = RefinePrompt.Build(RefineMode.Polish);
 
@@ -57,7 +57,7 @@ public sealed class RefinePromptTests
     }
 
     [Fact]
-    public void 不优化没有提示词()
+    public void NoneModeHasNoPrompt()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => RefinePrompt.Build(RefineMode.None));
     }

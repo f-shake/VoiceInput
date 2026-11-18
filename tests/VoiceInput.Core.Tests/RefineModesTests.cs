@@ -11,7 +11,7 @@ public sealed class RefineModesTests
     [InlineData("punctuation", RefineMode.Punctuation)]
     [InlineData("  FIX  ", RefineMode.Fix)]
     [InlineData("Punctuation", RefineMode.Punctuation)]
-    public void 四个取值都能解析且忽略大小写与空白(string raw, RefineMode expected)
+    public void AllFourValuesParseIgnoringCaseAndWhitespace(string raw, RefineMode expected)
     {
         Assert.True(RefineModes.TryParse(raw, out var mode));
         Assert.Equal(expected, mode);
@@ -23,14 +23,14 @@ public sealed class RefineModesTests
     [InlineData("   ")]
     [InlineData("poly")]
     [InlineData("不优化")]
-    public void 未知取值解析失败并落到不优化(string? raw)
+    public void UnknownValueFallsBackToNone(string? raw)
     {
         Assert.False(RefineModes.TryParse(raw, out var mode));
         Assert.Equal(RefineMode.None, mode);
     }
 
     [Fact]
-    public void 配置值与中文名成对且互不相同()
+    public void ConfigValuesAndDisplayNamesAreDistinct()
     {
         var configValues = RefineModes.All.Select(RefineModes.ToConfigValue).ToList();
         var displayNames = RefineModes.All.Select(RefineModes.DisplayName).ToList();
@@ -47,7 +47,7 @@ public sealed class RefineModesTests
     }
 
     [Fact]
-    public void 下拉顺序是不优化在前()
+    public void DropdownStartsWithNone()
     {
         Assert.Equal(RefineMode.None, RefineModes.All[0]);
         Assert.Equal(

@@ -44,7 +44,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 一轮完整流程以粘贴成功收尾()
+    public async Task FullPipelineEndsWithSuccessfulPaste()
     {
         var transcriber = new FakeTranscriber();
         var context = Build(transcriber);
@@ -61,7 +61,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 按下即显示录音中并按顺序播放提示音()
+    public async Task HotkeyDownShowsRecordingStatus()
     {
         var context = Build();
 
@@ -74,7 +74,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 录音过短不发请求()
+    public async Task ShortRecordingSkipsTranscription()
     {
         var transcriber = new FakeTranscriber();
         var context = Build(transcriber, recorder: new FakeRecorder { Result = new Recording(new byte[] { 1 }, 0.1, false) });
@@ -90,7 +90,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 时长恰好等于下限时照常提交()
+    public async Task ExactMinimumDurationIsStillSubmitted()
     {
         var transcriber = new FakeTranscriber();
         var context = Build(transcriber, recorder: new FakeRecorder { Result = new Recording(new byte[] { 1 }, 0.3, false) });
@@ -102,7 +102,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 没有录音数据时按过短处理()
+    public async Task MissingRecordingDataIsTreatedAsTooShort()
     {
         var transcriber = new FakeTranscriber();
         var context = Build(transcriber, recorder: new FakeRecorder { Result = new Recording(null!, 1.0, false) });
@@ -115,7 +115,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 转写结果为空时不碰剪贴板()
+    public async Task EmptyTranscriptionSkipsClipboard()
     {
         var transcriber = new FakeTranscriber { Result = new AsrResult("   ", 0, "req-9", 0.1) };
         var context = Build(transcriber);
@@ -128,7 +128,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 转写失败时状态条给一句人话且日志带错误码()
+    public async Task TranscriptionFailureShowsMessageAndErrorCode()
     {
         var transcriber = new FakeTranscriber
         {
@@ -145,7 +145,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 粘贴失败时把转写文本本身写进日志()
+    public async Task PasteFailureLogsTranscribedText()
     {
         var paster = new FakePaster
         {
@@ -161,7 +161,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 组合键按下瞬间就提示并停录()
+    public async Task OtherKeyPressStopsRecordingImmediately()
     {
         var transcriber = new FakeTranscriber();
         var context = Build(transcriber, recorder: new FakeRecorder { WaitForCancel = true });
@@ -189,7 +189,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 按下热键时另有键按着就不启动()
+    public async Task HotkeyPressWithOtherKeyHeldDoesNotStart()
     {
         var transcriber = new FakeTranscriber();
         var context = Build(transcriber);
@@ -208,7 +208,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 被忽略后再干净按下照常录音()
+    public async Task CleanPressAfterIgnoredPressRecordsNormally()
     {
         var transcriber = new FakeTranscriber();
         var context = Build(transcriber);
@@ -225,7 +225,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 取消后热键自动重复不再启动()
+    public async Task AutoRepeatAfterCancelDoesNotRestart()
     {
         var context = Build();
 
@@ -248,7 +248,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 转写进行中再按热键只记一条日志()
+    public async Task HotkeyDuringTranscriptionLogsBusyOnce()
     {
         var transcriber = new BlockingTranscriber();
         var context = Build(transcriber);
@@ -269,7 +269,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 按住不放时重复的按下事件不重启录音()
+    public async Task HeldHotkeyRepeatDoesNotRestartRecording()
     {
         var context = Build();
 
@@ -282,7 +282,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 超过上限时先提示截断再继续转写()
+    public async Task OverLimitWarnsTruncationThenTranscribes()
     {
         var transcriber = new FakeTranscriber();
         var context = Build(
@@ -297,7 +297,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 录音器报错时按错误文案收尾()
+    public async Task RecorderErrorEndsWithErrorMessage()
     {
         var transcriber = new FakeTranscriber();
         var recorder = new FakeRecorder
@@ -314,7 +314,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 剪贴板还原失败只告警不影响成功()
+    public async Task ClipboardRestoreFailureOnlyWarns()
     {
         var paster = new FakePaster { Result = new PasteResult(true, false, true) };
         var context = Build(paster: paster);
@@ -327,7 +327,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 未按下就松开不会启动任何流程()
+    public async Task HotkeyUpWithoutDownStartsNothing()
     {
         var transcriber = new FakeTranscriber();
         var context = Build(transcriber);
@@ -340,7 +340,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 不优化时按原文粘贴并写明不优化()
+    public async Task NoRefinePastesOriginalAndLogsMode()
     {
         var context = Build();
 
@@ -354,7 +354,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 优化成功时粘贴优化后的文本并标记已优化()
+    public async Task RefineSuccessPastesRefinedTextAndMarksOptimized()
     {
         var refiner = new FakeRefiner { Result = "你好，世界。", Description = "fix" };
         var context = Build(refiner: refiner);
@@ -371,7 +371,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 优化失败时回退原文并显示橙色警告()
+    public async Task RefineFailureFallsBackAndWarns()
     {
         var refiner = new FakeRefiner
         {
@@ -390,7 +390,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 没选模型时按优化失败显示橙色()
+    public async Task MissingModelShowsRefineFailureWarning()
     {
         var refiner = new UnavailableRefiner("polish", "没有选择模型");
         var context = Build(refiner: refiner);
@@ -406,7 +406,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 优化结果为空时回退原文()
+    public async Task EmptyRefineResultFallsBackToOriginal()
     {
         var refiner = new FakeRefiner { Result = "   " };
         var context = Build(refiner: refiner);
@@ -419,7 +419,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 转写为空时不调用优化器()
+    public async Task EmptyTranscriptionSkipsRefiner()
     {
         var refiner = new FakeRefiner();
         var transcriber = new FakeTranscriber { Result = new AsrResult("  ", 0, "req-empty", 0.1) };
@@ -434,7 +434,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 关闭保留句末标点时去掉原文末尾标点()
+    public async Task TrailingPunctuationOffStripsRawPunctuation()
     {
         var transcriber = new FakeTranscriber { Result = new AsrResult("你好。", 0, "req", 0.1) };
         var context = Build(transcriber, keepTrailingPunctuation: () => false);
@@ -446,7 +446,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 默认保留句末标点()
+    public async Task TrailingPunctuationKeptByDefault()
     {
         var transcriber = new FakeTranscriber { Result = new AsrResult("你好。", 0, "req", 0.1) };
         var context = Build(transcriber);
@@ -458,7 +458,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 关闭保留句末标点时优化结果也去标点()
+    public async Task TrailingPunctuationOffStripsRefinedPunctuation()
     {
         var refiner = new FakeRefiner { Result = "你好，世界。" };
         var context = Build(refiner: refiner, keepTrailingPunctuation: () => false);
@@ -470,7 +470,7 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 优化进行中状态条显示优化中且随后完成粘贴()
+    public async Task RefiningShowsOptimizingThenPastes()
     {
         var refiner = new FakeRefiner
         {

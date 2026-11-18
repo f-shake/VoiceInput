@@ -10,7 +10,7 @@ public sealed class ModelCatalogTests
         """{"object":"list","data":[{"id":"deepseek-chat"},{"id":"deepseek-reasoner"}]}""";
 
     [Fact]
-    public async Task 请求发到models并带鉴权头()
+    public async Task RequestGoesToModelsWithAuthHeader()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, TwoModels);
         using var catalog = new ModelCatalog(handler);
@@ -23,7 +23,7 @@ public sealed class ModelCatalogTests
     }
 
     [Fact]
-    public async Task 地址带结尾斜杠也能拼对()
+    public async Task BaseUrlWithTrailingSlashIsJoinedCorrectly()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, TwoModels);
         using var catalog = new ModelCatalog(handler);
@@ -34,7 +34,7 @@ public sealed class ModelCatalogTests
     }
 
     [Fact]
-    public async Task 解析出模型标识()
+    public async Task ModelIdsAreParsed()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, TwoModels);
         using var catalog = new ModelCatalog(handler);
@@ -45,7 +45,7 @@ public sealed class ModelCatalogTests
     }
 
     [Fact]
-    public async Task 兼容根节点是字符串数组的端点()
+    public async Task StringArrayRootIsSupported()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, """["model-a","model-b"]""");
         using var catalog = new ModelCatalog(handler);
@@ -56,7 +56,7 @@ public sealed class ModelCatalogTests
     }
 
     [Fact]
-    public async Task 空标识与重复项被过滤()
+    public async Task EmptyIdsAndDuplicatesAreFiltered()
     {
         const string body =
             """{"data":[{"id":"a"},{"id":""},{"id":"a"},{"noId":"x"},{"id":"b"}]}""";
@@ -69,7 +69,7 @@ public sealed class ModelCatalogTests
     }
 
     [Fact]
-    public async Task 形状不认识时返回空列表()
+    public async Task UnknownShapeReturnsEmptyList()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, """{"object":"list"}""");
         using var catalog = new ModelCatalog(handler);
@@ -80,7 +80,7 @@ public sealed class ModelCatalogTests
     }
 
     [Fact]
-    public async Task 非成功状态码抛错()
+    public async Task NonSuccessStatusCodeThrows()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.Unauthorized, "{}");
         using var catalog = new ModelCatalog(handler);
@@ -92,7 +92,7 @@ public sealed class ModelCatalogTests
     }
 
     [Fact]
-    public async Task 超时抛取消异常()
+    public async Task TimeoutThrowsOperationCanceled()
     {
         using var catalog = new ModelCatalog(new HangingHandler());
 

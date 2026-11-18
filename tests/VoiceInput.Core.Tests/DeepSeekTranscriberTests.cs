@@ -29,7 +29,7 @@ public sealed class DeepSeekTranscriberTests
             });
 
     [Fact]
-    public async Task 成功响应被解析成转写结果()
+    public async Task SuccessfulResponseIsParsedIntoTranscript()
     {
         var handler = new FakeHttpHandler()
             .Respond(HttpStatusCode.OK, """{"request_id":"req-1","text":"你好","duration_ms":900}""");
@@ -44,7 +44,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 请求带鉴权头与multipart文件名()
+    public async Task RequestCarriesAuthHeaderAndMultipartFileName()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, """{"text":"好"}""");
         using var client = Client(handler);
@@ -65,7 +65,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 返回文本里的换行被打平成一行()
+    public async Task NewlinesInReturnedTextAreFlattened()
     {
         var handler = new FakeHttpHandler()
             .Respond(HttpStatusCode.OK, """{"request_id":"r","text":"第一句\n第二句","duration_ms":10}""");
@@ -77,7 +77,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 缺text字段报E09()
+    public async Task MissingTextFieldReportsE09()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, """{"request_id":"r"}""");
         using var client = Client(handler);
@@ -89,7 +89,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 非JSON响应报E09()
+    public async Task NonJsonResponseReportsE09()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, "<html>502</html>");
         using var client = Client(handler);
@@ -101,7 +101,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task text不是字符串报E09()
+    public async Task NonStringTextReportsE09()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, """{"text":123}""");
         using var client = Client(handler);
@@ -110,7 +110,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 状态401不重试()
+    public async Task Status401IsNotRetried()
     {
         var handler = new FakeHttpHandler()
             .Respond(HttpStatusCode.Unauthorized)
@@ -131,7 +131,7 @@ public sealed class DeepSeekTranscriberTests
     [InlineData(HttpStatusCode.BadRequest)]
     [InlineData(HttpStatusCode.RequestTimeout)]
     [InlineData(HttpStatusCode.RequestEntityTooLarge)]
-    public async Task 音频类错误不重试(HttpStatusCode status)
+    public async Task AudioErrorsAreNotRetried(HttpStatusCode status)
     {
         var handler = new FakeHttpHandler().Respond(status).Respond(status).Respond(status);
         var delays = new List<double>();
@@ -146,7 +146,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 状态429重试用尽后报E06()
+    public async Task Status429ReportsE06AfterRetriesExhausted()
     {
         var handler = new FakeHttpHandler()
             .Respond(HttpStatusCode.TooManyRequests)
@@ -164,7 +164,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 状态503重试用尽后文案带次数()
+    public async Task Status503MentionsRetryCountAfterExhaustion()
     {
         var handler = new FakeHttpHandler()
             .Respond(HttpStatusCode.ServiceUnavailable)
@@ -180,7 +180,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 五百错误在下一次成功时正常返回()
+    public async Task ServerErrorThenSuccessReturnsResult()
     {
         var handler = new FakeHttpHandler()
             .Respond(HttpStatusCode.InternalServerError)
@@ -194,7 +194,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 传输异常重试后报E05()
+    public async Task TransportFailureReportsE05AfterRetries()
     {
         var handler = new FakeHttpHandler()
             .Throw(new HttpRequestException("connection refused"))
@@ -213,7 +213,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 读取超时报E05()
+    public async Task ReadTimeoutReportsE05()
     {
         using var client = new DeepSeekTranscriber(
             "sk-test", "https://api.deepseek.com", Tuning(readTimeoutSeconds: 0.05), new HangingHandler());
@@ -225,7 +225,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 重试次数为零时只请求一次()
+    public async Task ZeroRetriesSendsSingleRequest()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.ServiceUnavailable);
         using var client = Client(handler, retries: 0);
@@ -236,7 +236,7 @@ public sealed class DeepSeekTranscriberTests
     }
 
     [Fact]
-    public async Task 缺duration时按零处理()
+    public async Task MissingDurationIsTreatedAsZero()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, """{"text":"好"}""");
         using var client = Client(handler);

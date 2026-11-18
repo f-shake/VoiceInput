@@ -5,7 +5,7 @@ namespace VoiceInput.Core.Tests;
 public sealed class AudioLevelTests
 {
     [Fact]
-    public void 全零的PCM算静音()
+    public void AllZeroPcmIsSilence()
     {
         Assert.Equal(0f, AudioLevel.FromPcm16Le(new byte[320]));
     }
@@ -13,13 +13,13 @@ public sealed class AudioLevelTests
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
-    public void 空缓冲或不足一个采样返回零(int length)
+    public void EmptyOrPartialSampleBufferReturnsZero(int length)
     {
         Assert.Equal(0f, AudioLevel.FromPcm16Le(new byte[length]));
     }
 
     [Fact]
-    public void 满幅正弦接近满格()
+    public void FullAmplitudeSineIsNearFullScale()
     {
         var pcm = Sine(amplitude: 30000, samples: 1600);
 
@@ -29,7 +29,7 @@ public sealed class AudioLevelTests
     }
 
     [Fact]
-    public void 中等音量落在区间中间()
+    public void MediumVolumeFallsInMiddleRange()
     {
         var pcm = Sine(amplitude: 3000, samples: 1600);
 
@@ -39,32 +39,32 @@ public sealed class AudioLevelTests
     }
 
     [Fact]
-    public void 低于门限算静音()
+    public void BelowThresholdIsSilence()
     {
         // 20 的 RMS 约 -64 dBFS，低于 -60 的门限。
         Assert.Equal(0f, AudioLevel.ToNormalized(20));
     }
 
     [Fact]
-    public void 超过上限截到一()
+    public void AboveUpperBoundClampsToOne()
     {
         Assert.Equal(1f, AudioLevel.ToNormalized(40000));
     }
 
     [Fact]
-    public void 显示增益在静音时保留底值()
+    public void DisplayGainKeepsFloorAtSilence()
     {
         Assert.Equal(0.15f, AudioLevel.ToDisplayGain(0));
     }
 
     [Fact]
-    public void 显示增益在满格时饱和到一()
+    public void DisplayGainSaturatesAtFullScale()
     {
         Assert.Equal(1f, AudioLevel.ToDisplayGain(1));
     }
 
     [Fact]
-    public void 显示增益随电平单调不减()
+    public void DisplayGainNeverDecreasesWithLevel()
     {
         var previous = -1f;
         for (var step = 0; step <= 100; step++)
@@ -77,7 +77,7 @@ public sealed class AudioLevelTests
     }
 
     [Fact]
-    public void 显示增益抬高了正常说话的音量区()
+    public void DisplayGainLiftsNormalSpeechRange()
     {
         // 旧曲线 0.15 + 0.85 × level：0.25 → 0.363、0.56 → 0.626。
         Assert.True(AudioLevel.ToDisplayGain(0.25f) > 0.5f);
@@ -85,7 +85,7 @@ public sealed class AudioLevelTests
     }
 
     [Fact]
-    public void 显示增益钳制越界电平()
+    public void DisplayGainClampsOutOfRangeLevel()
     {
         Assert.Equal(0.15f, AudioLevel.ToDisplayGain(-1));
         Assert.Equal(1f, AudioLevel.ToDisplayGain(2));

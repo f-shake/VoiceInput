@@ -24,7 +24,7 @@ public sealed class ErrorCatalogTests
 
     [Theory]
     [MemberData(nameof(Messages))]
-    public void 文案非空且是单行(string message)
+    public void MessageIsNonEmptyAndSingleLine(string message)
     {
         Assert.False(string.IsNullOrWhiteSpace(message));
         Assert.DoesNotContain("\n", message, StringComparison.Ordinal);
@@ -33,14 +33,14 @@ public sealed class ErrorCatalogTests
 
     [Theory]
     [MemberData(nameof(Messages))]
-    public void 文案不含表情符号(string message)
+    public void MessageHasNoEmoji(string message)
     {
         Assert.False(Emoji.IsMatch(message), message);
     }
 
     [Theory]
     [MemberData(nameof(Messages))]
-    public void 文案不用直角引号(string message)
+    public void MessageAvoidsCornerQuotes(string message)
     {
         Assert.DoesNotContain("「", message, StringComparison.Ordinal);
         Assert.DoesNotContain("」", message, StringComparison.Ordinal);
@@ -48,13 +48,13 @@ public sealed class ErrorCatalogTests
 
     [Theory]
     [MemberData(nameof(Messages))]
-    public void 文案含中文(string message)
+    public void MessageContainsChinese(string message)
     {
         Assert.True(Chinese.IsMatch(message), message);
     }
 
     [Fact]
-    public void 状态条超过上限被截断并加省略号()
+    public void StatusBarOverLimitIsTruncatedWithEllipsis()
     {
         var clamped = ErrorCatalog.ClampForStatus(new string('字', 40));
 
@@ -63,19 +63,19 @@ public sealed class ErrorCatalogTests
     }
 
     [Fact]
-    public void 状态条没超上限时原样返回()
+    public void StatusBarUnderLimitIsUnchanged()
     {
         Assert.Equal("短句", ErrorCatalog.ClampForStatus("短句"));
     }
 
     [Fact]
-    public void 粘贴成功文案带字数()
+    public void PasteSuccessMessageIncludesCount()
     {
         Assert.Equal("已粘贴 7 字", ErrorCatalog.Pasted(7));
     }
 
     [Fact]
-    public void 异常携带错误码用户文案与细节()
+    public void ExceptionCarriesCodeMessageAndDetail()
     {
         var error = new VoiceInputException(ErrorCodes.PasteFailed, ErrorCatalog.PasteFailed, detail: "按键注入失败");
 

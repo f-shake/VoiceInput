@@ -37,7 +37,7 @@ public sealed class ConfigSaveTests : IDisposable
     };
 
     [Fact]
-    public void 新文件写出全部二十二个字段()
+    public void NewFileWritesAllTwentyTwoFields()
     {
         var path = PathOf();
 
@@ -60,7 +60,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 结果优化字段能写回并读回()
+    public void OptimizeFieldsSurviveSaveAndLoad()
     {
         var path = PathOf();
         var saved = new AppConfig
@@ -87,7 +87,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 写回的配置能被重新读出来()
+    public void SavedConfigCanBeReadBack()
     {
         var path = PathOf();
         var saved = Sample();
@@ -110,7 +110,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 文件里不认识的字段会被保留()
+    public void UnknownFieldsArePreserved()
     {
         var path = PathOf();
         File.WriteAllText(path, """{ "myOwnNote": "别删我", "hotkey": "RightCtrl" }""");
@@ -123,7 +123,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 旧文件不是合法JSON时直接重写()
+    public void InvalidOldFileIsOverwritten()
     {
         var path = PathOf();
         File.WriteAllText(path, "{ 这不是 json");
@@ -134,7 +134,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 保存overlay时保留用户自己写的子键()
+    public void SavingOverlayKeepsUserSubKeys()
     {
         var path = PathOf();
         File.WriteAllText(path, """{ "overlay": { "x": 0.1, "y": 0.1, "myNote": "别删我" } }""");
@@ -149,7 +149,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 目录不存在时会自动创建()
+    public void MissingDirectoryIsCreatedAutomatically()
     {
         var path = Path.Combine(_directory, "深一层", "再一层", "config.json");
 
@@ -159,7 +159,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 不留下临时文件()
+    public void NoTempFileIsLeftBehind()
     {
         var path = PathOf();
 
@@ -169,7 +169,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 空Key与空设备写成null而不是省略()
+    public void EmptyKeyAndDeviceAreWrittenAsNullNotEmpty()
     {
         var path = PathOf();
         var config = new AppConfig { ApiKey = string.Empty, DeviceNumber = null };
@@ -182,7 +182,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 写出的值类型与配置类型一致()
+    public void WrittenValueTypesMatchConfigTypes()
     {
         var path = PathOf();
 
@@ -197,7 +197,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 覆盖保存不会累积旧的退避数组()
+    public void OverwriteSaveDoesNotAccumulateBackoffArray()
     {
         var path = PathOf();
         ConfigLoader.Save(path, new AppConfig { Retries = 2, RetryBackoffSeconds = new[] { 0.5, 1.5 } });
@@ -210,7 +210,7 @@ public sealed class ConfigSaveTests : IDisposable
     }
 
     [Fact]
-    public void 旧文件带注释时未知字段也不丢()
+    public void UnknownFieldsSurviveInCommentedOldFile()
     {
         var path = PathOf();
         // 注释本身不会被保留（JsonNode 不保存注释），但用户手写的额外字段必须留住。

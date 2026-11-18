@@ -6,7 +6,7 @@ namespace VoiceInput.Core.Tests;
 public sealed class UnavailableRefinerTests
 {
     [Fact]
-    public async Task 调用时抛E26并带上原因()
+    public async Task RefineThrowsE26WithReason()
     {
         var refiner = new UnavailableRefiner("polish", "没有选择模型");
 

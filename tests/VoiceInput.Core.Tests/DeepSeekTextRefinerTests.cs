@@ -26,7 +26,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 默认请求体显式关闭思考()
+    public async Task DefaultRequestBodyDisablesThinking()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("你好。"));
         using var refiner = Build(handler);
@@ -37,7 +37,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 打开思考时请求体不再带关闭字段()
+    public async Task EnablingThinkingDropsDisabledFlag()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("你好。"));
         using var refiner = Build(handler, thinking: true);
@@ -48,7 +48,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 请求发到对话接口并带鉴权模型与固定温度()
+    public async Task RequestToChatEndpointCarriesAuthModelAndZeroTemperature()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("你好。"));
         using var refiner = Build(handler);
@@ -64,7 +64,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 接口地址带结尾斜杠也能拼对()
+    public async Task BaseUrlWithTrailingSlashIsJoinedCorrectly()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("你好。"));
         using var refiner = Build(handler, baseUrl: "https://api.example.com/");
@@ -75,7 +75,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 成功时返回压成单行的优化结果()
+    public async Task SuccessReturnsRefinedTextFlattenedToOneLine()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("你好\n世界。"));
         using var refiner = Build(handler);
@@ -89,7 +89,7 @@ public sealed class DeepSeekTextRefinerTests
     [InlineData(RefineMode.Polish, "去掉“嗯、呃、啊、那个”")]
     [InlineData(RefineMode.Fix, "不要调整语序")]
     [InlineData(RefineMode.Punctuation, "只修正和补全标点符号")]
-    public async Task 每种方式都把对应提示词发给服务端(RefineMode mode, string expected)
+    public async Task EachModeSendsItsPromptToServer(RefineMode mode, string expected)
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("你好"));
         using var refiner = Build(handler, mode);
@@ -101,7 +101,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 结果是空白时报错()
+    public async Task BlankResultIsRejected()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("   "));
         using var refiner = Build(handler);
@@ -114,7 +114,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 结果比原文长出太多时报错()
+    public async Task ResultMuchLongerThanInputIsRejected()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body(new string('阐', 60)));
         using var refiner = Build(handler);
@@ -126,7 +126,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 仅修复标点模式改动了文字就回退()
+    public async Task PunctuationOnlyModeRevertsTextChanges()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("今天天汽不错。"));
         using var refiner = Build(handler, RefineMode.Punctuation);
@@ -138,7 +138,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 仅修复标点模式只改标点则通过()
+    public async Task PunctuationOnlyModeAcceptsPurePunctuationEdits()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("你好，世界。"));
         using var refiner = Build(handler, RefineMode.Punctuation);
@@ -149,7 +149,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 仅修复标点模式丢了货币符号要回退()
+    public async Task PunctuationOnlyModeRevertsLostCurrencySymbol()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("一共300元，"));
         using var refiner = Build(handler, RefineMode.Punctuation);
@@ -161,7 +161,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 模型拒答不会被当作优化结果粘贴()
+    public async Task ModelRefusalIsNotPastedAsRefinedText()
     {
         var handler = new FakeHttpHandler()
             .Respond(HttpStatusCode.OK, Body("抱歉，我无法完成这个请求。"));
@@ -174,7 +174,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 润色删掉语气词仍算合格()
+    public async Task PolishModeAcceptsRemovedFillers()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("我明天去北京。"));
         using var refiner = Build(handler, RefineMode.Polish);
@@ -188,7 +188,7 @@ public sealed class DeepSeekTextRefinerTests
     [InlineData(HttpStatusCode.Unauthorized, "401")]
     [InlineData(HttpStatusCode.TooManyRequests, "429")]
     [InlineData(HttpStatusCode.InternalServerError, "500")]
-    public async Task 非成功状态码按失败处理(HttpStatusCode status, string expectedInDetail)
+    public async Task NonSuccessStatusCodeIsTreatedAsFailure(HttpStatusCode status, string expectedInDetail)
     {
         var handler = new FakeHttpHandler().Respond(status, "{}");
         using var refiner = Build(handler);
@@ -201,7 +201,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 响应不是JSON时报错()
+    public async Task NonJsonResponseIsRejected()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, "这不是 JSON");
         using var refiner = Build(handler);
@@ -213,7 +213,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 响应缺少choices时报错()
+    public async Task ResponseMissingChoicesIsRejected()
     {
         var handler = new FakeHttpHandler().Respond(HttpStatusCode.OK, """{"object":"chat"}""");
         using var refiner = Build(handler);
@@ -225,7 +225,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 超时报错并写清超时秒数()
+    public async Task TimeoutIsReportedWithTimeoutSeconds()
     {
         using var refiner = Build(new HangingHandler(), timeoutSeconds: 0.1);
 
@@ -236,7 +236,7 @@ public sealed class DeepSeekTextRefinerTests
     }
 
     [Fact]
-    public async Task 资源释放后再用会抛对象已释放()
+    public async Task UseAfterDisposeThrowsObjectDisposed()
     {
         var refiner = Build(new FakeHttpHandler().Respond(HttpStatusCode.OK, Body("你好")));
         refiner.Dispose();

@@ -28,7 +28,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 文件不存在时用全默认值()
+    public void MissingFileUsesAllDefaults()
     {
         var result = ConfigLoader.Load(Path.Combine(_directory, "没有这个文件.json"));
 
@@ -41,7 +41,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 空对象也用默认值()
+    public void EmptyObjectAlsoUsesDefaults()
     {
         var result = ConfigLoader.Load(Write("{}"));
 
@@ -51,7 +51,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 十二个字段都能覆盖()
+    public void AllTwelveFieldsCanBeOverridden()
     {
         var result = ConfigLoader.Load(Write("""
             {
@@ -86,7 +86,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 允许注释与尾逗号()
+    public void CommentsAndTrailingCommasAreAllowed()
     {
         var result = ConfigLoader.Load(Write("""
             {
@@ -99,7 +99,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 未知字段只告警不报错()
+    public void UnknownFieldOnlyWarns()
     {
         var result = ConfigLoader.Load(Write("""{ "maxSeconds": 20, "maxSecnds": 99 }"""));
 
@@ -109,7 +109,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void JSON语法错误报E15()
+    public void JsonSyntaxErrorReportsE15()
     {
         var error = Assert.Throws<VoiceInputException>(() => ConfigLoader.Load(Write("{\n  \"maxSeconds\": ,\n}")));
 
@@ -118,7 +118,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 顶层不是对象报E16()
+    public void NonObjectRootReportsE16()
     {
         var error = Assert.Throws<VoiceInputException>(() => ConfigLoader.Load(Write("[1,2]")));
 
@@ -153,7 +153,7 @@ public sealed class ConfigLoaderTests : IDisposable
     [InlineData("aiOptimizeApiKey", "123")]
     [InlineData("aiOptimizeMode", "true")]
     [InlineData("aiOptimizeThinking", "1")]
-    public void 非法取值报E16(string field, string rawValue)
+    public void InvalidValueReportsE16(string field, string rawValue)
     {
         var error = Assert.Throws<VoiceInputException>(
             () => ConfigLoader.Load(Write($"{{ \"{field}\": {rawValue} }}")));
@@ -163,7 +163,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 最短录音不能大于等于最长录音()
+    public void MinSecondsMustBeLessThanMaxSeconds()
     {
         var error = Assert.Throws<VoiceInputException>(
             () => ConfigLoader.Load(Write("""{ "minSeconds": 10, "maxSeconds": 10 }""")));
@@ -172,7 +172,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 退避表长度不足要报错()
+    public void ShortBackoffTableFails()
     {
         var error = Assert.Throws<VoiceInputException>(
             () => ConfigLoader.Load(Write("""{ "retries": 3, "retryBackoffSeconds": [0.1, 0.2] }""")));
@@ -181,7 +181,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 设备号可以写null()
+    public void DeviceNumberAcceptsNull()
     {
         var result = ConfigLoader.Load(Write("""{ "deviceNumber": null }"""));
 
@@ -189,7 +189,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 热键别名收敛成规范名()
+    public void HotkeyAliasesCollapseToCanonicalName()
     {
         Assert.Equal("RightCtrl", ConfigLoader.Load(Write("""{ "hotkey": "right ctrl" }""")).Config.Hotkey);
         Assert.Equal("RightCtrl", ConfigLoader.Load(Write("""{ "hotkey": "RCTRL" }""")).Config.Hotkey);
@@ -197,7 +197,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 没有overlay字段时用底部居中的缺省值()
+    public void MissingOverlayUsesBottomCenterDefaults()
     {
         var config = ConfigLoader.Load(Write("""{ "hotkey": "F9" }""")).Config;
 
@@ -206,7 +206,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void overlay位置能读回来()
+    public void OverlayPositionCanBeReadBack()
     {
         var config = ConfigLoader.Load(Write("""{ "overlay": { "x": 0.2, "y": 0.7 } }""")).Config;
 
@@ -215,7 +215,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void overlay越界被钳到边界()
+    public void OverlayOutOfRangeIsClampedToBounds()
     {
         var config = ConfigLoader.Load(Write("""{ "overlay": { "x": 2, "y": -1 } }""")).Config;
 
@@ -224,7 +224,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void overlay只给一半时另一半用缺省值()
+    public void HalfOverlayKeepsOtherHalfDefault()
     {
         var config = ConfigLoader.Load(Write("""{ "overlay": { "x": 0.1 } }""")).Config;
 
@@ -233,7 +233,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void overlay不是对象时报E16()
+    public void NonObjectOverlayReportsE16()
     {
         var error = Assert.Throws<VoiceInputException>(() => ConfigLoader.Load(Write("""{ "overlay": 1 }""")));
 
@@ -242,7 +242,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void overlay里拼错的键名会进告警而不是悄悄退回默认位置()
+    public void MisspelledOverlayKeyWarnsInsteadOfFallingBackSilently()
     {
         var loaded = ConfigLoader.Load(Write("""{ "overlay": { "X": 0.2, "y": 0.7 } }"""));
 
@@ -252,7 +252,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 显式路径优先于其它查找位置()
+    public void ExplicitPathWinsOverOtherLocations()
     {
         var resolved = ConfigLoader.ResolvePath(@"C:\x\y.json", _directory, Path.GetTempPath());
 
@@ -260,7 +260,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void exe同目录的配置优先于用户目录()
+    public void ConfigBesideExeWinsOverUserDirectory()
     {
         var beside = Path.Combine(_directory, "config.json");
         File.WriteAllText(beside, "{}");
@@ -271,7 +271,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 都没有时回落到用户目录()
+    public void FallsBackToUserDirectoryWhenNoneExists()
     {
         var resolved = ConfigLoader.ResolvePath(null, _directory, @"C:\Users\x\AppData\Local");
 
@@ -279,7 +279,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 文件被独占时报E24而不是E15()
+    public void ExclusiveFileReportsE24NotE15()
     {
         var path = Write("{}");
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
@@ -291,7 +291,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 结果优化六个字段都能读对()
+    public void AllSixOptimizeFieldsReadCorrectly()
     {
         var config = ConfigLoader.Load(Write("""
             {
@@ -315,7 +315,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 结果优化缺省值是不优化且模型为空()
+    public void OptimizeDefaultsToNoneAndEmptyModel()
     {
         var config = ConfigLoader.Load(Write("{}")).Config;
 
@@ -329,7 +329,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 模型名可以是空串()
+    public void ModelNameAcceptsEmptyString()
     {
         var config = ConfigLoader.Load(Write("""{ "aiOptimizeModel": "" }""")).Config;
 
@@ -337,7 +337,7 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
-    public void 模型名超过六十四字符报E16()
+    public void ModelNameOverSixtyFourCharsReportsE16()
     {
         var tooLong = new string('m', 65);
         var error = Assert.Throws<VoiceInputException>(

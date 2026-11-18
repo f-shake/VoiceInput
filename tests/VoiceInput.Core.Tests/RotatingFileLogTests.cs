@@ -15,7 +15,7 @@ public sealed class RotatingFileLogTests : IDisposable
     }
 
     [Fact]
-    public void 写入后文件里能找到这一行()
+    public void WrittenLineIsFoundInFile()
     {
         using (var log = new RotatingFileLog(_directory))
         {
@@ -27,7 +27,7 @@ public sealed class RotatingFileLogTests : IDisposable
     }
 
     [Fact]
-    public void 超过上限时轮转出归档文件()
+    public void ExceedingLimitRotatesArchiveFile()
     {
         using (var log = new RotatingFileLog(_directory, "app.log", maxBytes: 200, keepFiles: 2))
         {
@@ -42,7 +42,7 @@ public sealed class RotatingFileLogTests : IDisposable
     }
 
     [Fact]
-    public void 目录不可写时静默降级()
+    public void UnwritableDirectoryDegradesSilently()
     {
         var filePath = Path.Combine(_directory, "这是文件不是目录");
         Directory.CreateDirectory(_directory);
@@ -55,7 +55,7 @@ public sealed class RotatingFileLogTests : IDisposable
     }
 
     [Fact]
-    public void 多行消息被压成一行()
+    public void MultilineMessageIsCollapsedToOneLine()
     {
         using (var log = new RotatingFileLog(_directory))
         {
