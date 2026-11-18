@@ -1,5 +1,6 @@
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+using VoiceInput.Core.Asr;
 using VoiceInput.Core.Config;
 using VoiceInput.Core.Diagnostics;
 using VoiceInput.Core.Pipeline;
@@ -7,15 +8,15 @@ using VoiceInput.Core.Pipeline;
 namespace VoiceInput.App.Ui;
 
 /// <summary>
-/// 屏幕底部水平居中的小圆：录音中是蓝色麦克风加外圈进度，转写中是三个点，成功变绿打勾，
-/// 优化失败变橙画叹号，整体失败变红画叉，并在圆上方挂一句原因。
+/// 状态小圆：录音中是蓝色麦克风加外圈进度，转写中是三个点，成功变绿打勾，
+/// 优化失败变橙画叹号，整体失败变红画叉，并在圆旁挂一句原因。
 ///
-/// 窗口整体鼠标穿透、不抢焦点、不进 Alt+Tab；形状靠 Region 裁出来，所以圆外的透明
-/// 角落既看不见也点不到。
+/// 圆心位置存成主屏工作区的百分比，可以按住圆或气泡拖到别处。窗口不抢焦点、不进 Alt+Tab；
+/// 形状靠 Region 裁出来，Region 之外的透明区域不接鼠标，所以只有圆和气泡本身能拖，
+/// 其余地方照旧点得穿——整窗不能再挂 WS_EX_TRANSPARENT，那会把圆也一起穿透。
 /// </summary>
 public sealed class StatusOverlay : Form, IStatusView
 {
-    private const int WsExTransparent = 0x00000020;
     private const int WsExToolWindow = 0x00000080;
     private const int WsExNoActivate = 0x08000000;
     private const int DwmwaWindowCornerPreference = 33;
@@ -26,10 +27,22 @@ public sealed class StatusOverlay : Form, IStatusView
     // 圆放大时图标不跟着放大：图标尺寸固定按 24 逻辑像素算，多出来的直径全变成留白。
     private const int BaseIconDiameter = 24;
     private const int BaseGap = 6;
-    private const int BaseBottomMargin = 72;
     private const int BaseMaxBubbleWidth = 220;
     private const int AutoHideMilliseconds = 1500;
     private const int TickMilliseconds = 33;
+
+    /// <summary>
+    /// 条高上限相对图标直径的比例。当前增益下最高只到 0.78，这里留 0.88 是防以后把
+    /// 增益曲线或比例再调大时顶出圆。改造前正常说话约 7 像素，现在约 14 像素。
+    /// </summary>
+    private const float WaveformHeightCap = 0.88f;
+
+    /// <summary>
+    /// 气泡离工作区顶边不足这个逻辑像素数时就翻到圆下方。取 12（约一行字高）而不是更小：
+    /// 锚点下限 0.05 在 200% 缩放下正好让气泡贴到离顶边 8 像素，4 像素的余量卡在边界上，
+    /// 翻转永远触发不了，等于白写。
+    /// </summary>
+    private const float BubbleEdgeMargin = 12f;
 
     private static readonly Color RecordingColor = Color.FromArgb(0x2F, 0x6F, 0xEB);
     private static readonly Color TranscribingColor = Color.FromArgb(0x2F, 0x6F, 0xEB);
@@ -58,11 +71,40 @@ public sealed class StatusOverlay : Form, IStatusView
     private Region? _region;
     private int _maxSeconds = 118;
 
+    /// <summary>圆心在主屏工作区里的百分比。拖动只改这两个值，窗口位置由它们推出来。</summary>
+    private double _anchorX = AppConfig.DefaultOverlayX;
+    private double _anchorY = AppConfig.DefaultOverlayY;
+
+    /// <summary>按下点相对圆心的偏移：拖动时让圆心跟着鼠标走，圆不会跳到光标底下。</summary>
+    private Point _dragOffset;
+    private bool _dragging;
+
+    /// <summary>气泡高度（像素，0 表示这一帧没有气泡）与它摆在圆的上方还是下方。</summary>
+    private int _bubbleHeight;
+    private bool _bubbleBelow;
+
+    /// <summary>
+    /// 两个形状在窗口里的位置。窗口是“圆 + 气泡”的包围盒，圆心由锚点定死、气泡偏心时
+    /// 自己贴边横移，所以状态切换（有无气泡）时圆不会跟着窗口漂。
+    /// </summary>
+    private Rectangle _circleRect;
+    private Rectangle _bubbleRect;
+
     public StatusOverlay(IDiagnosticsLog? log = null, AppConfig? config = null, Func<float>? level = null)
     {
         _log = log;
         _levelSource = level;
         _maxSeconds = Math.Max(1, config?.MaxSeconds ?? 118);
+        _anchorX = Math.Clamp(
+            config?.OverlayX ?? AppConfig.DefaultOverlayX,
+            AppConfig.OverlayMinFraction,
+            AppConfig.OverlayMaxFraction);
+        _anchorY = Math.Clamp(
+            config?.OverlayY ?? AppConfig.DefaultOverlayY,
+            AppConfig.OverlayMinFraction,
+            AppConfig.OverlayMaxFraction);
+        // 光标形状是唯一不占地方的“这里能拖”提示。
+        Cursor = Cursors.SizeAll;
         Icon = AppIcon.Shared;
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -84,6 +126,9 @@ public sealed class StatusOverlay : Form, IStatusView
     /// <summary>资源管理器重启后托盘图标要重挂，这个消息只有窗口收得到。</summary>
     public event Action? TaskbarCreated;
 
+    /// <summary>拖动结束，参数是新的圆心百分比。写配置文件由装配层负责，这里不碰磁盘。</summary>
+    public event Action<double, double>? Moved;
+
     protected override bool ShowWithoutActivation => true;
 
     protected override CreateParams CreateParams
@@ -91,7 +136,7 @@ public sealed class StatusOverlay : Form, IStatusView
         get
         {
             var parameters = base.CreateParams;
-            parameters.ExStyle |= WsExNoActivate | WsExTransparent | WsExToolWindow;
+            parameters.ExStyle |= WsExNoActivate | WsExToolWindow;
             return parameters;
         }
     }
@@ -135,27 +180,111 @@ public sealed class StatusOverlay : Form, IStatusView
         base.WndProc(ref m);
     }
 
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.Button != MouseButtons.Left)
+        {
+            return;
+        }
+
+        var center = CircleCenterScreen();
+        _dragOffset = new Point(Cursor.Position.X - center.X, Cursor.Position.Y - center.Y);
+        _dragging = true;
+        Capture = true;
+
+        // 成功/失败的圆只停 1.5 秒：拖到一半被自己藏起来太怪了。
+        _autoHide.Stop();
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (!_dragging)
+        {
+            return;
+        }
+
+        var area = WorkingArea();
+        var center = new Point(Cursor.Position.X - _dragOffset.X, Cursor.Position.Y - _dragOffset.Y);
+        _anchorX = Math.Clamp(
+            (double)(center.X - area.Left) / Math.Max(1, area.Width),
+            AppConfig.OverlayMinFraction,
+            AppConfig.OverlayMaxFraction);
+        _anchorY = Math.Clamp(
+            (double)(center.Y - area.Top) / Math.Max(1, area.Height),
+            AppConfig.OverlayMinFraction,
+            AppConfig.OverlayMaxFraction);
+
+        // 边拖边重新布局：贴到顶边时气泡要当场翻到下面，等松手才翻会看着像跳了一下。
+        LayoutWindow();
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        EndDrag(commit: true);
+    }
+
+    /// <summary>
+    /// 鼠标捕获被系统收回（Alt+Tab、窗口被隐藏、另一个窗口抢走鼠标）时 MouseUp 不会再来：
+    /// 这里按“拖完了”收尾，否则 _dragging 永远是 true，下一次显示时鼠标一动窗口就跳到光标下。
+    /// </summary>
+    protected override void OnMouseCaptureChanged(EventArgs e)
+    {
+        base.OnMouseCaptureChanged(e);
+        if (_dragging && !Capture)
+        {
+            EndDrag(commit: true);
+        }
+    }
+
+    /// <summary>收尾一次拖动：复位状态、放掉捕获、恢复自动回落，并把新位置报给装配层。</summary>
+    private void EndDrag(bool commit)
+    {
+        if (!_dragging)
+        {
+            return;
+        }
+
+        _dragging = false;
+        Capture = false;
+
+        if (Visible && _state is OverlayState.Success or OverlayState.Warning or OverlayState.Failure)
+        {
+            _autoHide.Start();
+        }
+
+        if (commit)
+        {
+            Moved?.Invoke(_anchorX, _anchorY);
+        }
+    }
+
+    private Point CircleCenterScreen() => new(
+        Location.X + _circleRect.Left + (_circleRect.Width / 2),
+        Location.Y + _circleRect.Top + (_circleRect.Height / 2));
+
+    private static Rectangle WorkingArea() =>
+        Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
+
     protected override void OnPaint(PaintEventArgs e)
     {
         var scale = DeviceDpi / 96f;
         var graphics = e.Graphics;
+
+        // 先整块清底：窗口是分层窗口 + 自定义区域，尺寸和位置每换一个状态都会变，
+        // 不清底时上一帧的圆和字会留在重叠区域里（实测出现过蓝色圆压在新气泡上）。
+        graphics.Clear(BubbleColor);
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-        var diameter = (int)(BaseDiameter * scale);
+        var diameter = _circleRect.Width;
+        var circle = _circleRect;
+        var center = new Point(circle.Left + (diameter / 2), circle.Top + (diameter / 2));
 
-        // 圆心必须落在窗口正中：窗口按屏幕中线定位，圆放在 x=0 会整体偏左半个气泡宽，
-        // 有气泡时还会把气泡挤到窗口外、被裁成换行。
-        var circle = new Rectangle((Width - diameter) / 2, Height - diameter, diameter, diameter);
-        var center = new Point(circle.Left + diameter / 2, circle.Top + diameter / 2);
-
-        if (!string.IsNullOrEmpty(_bubbleText))
+        if (!_bubbleRect.IsEmpty)
         {
-            var bubble = new Rectangle(
-                0,
-                0,
-                Width,
-                Height - diameter - (int)(BaseGap * scale));
-            DrawBubble(graphics, bubble, scale);
+            DrawBubble(graphics, _bubbleRect, scale);
         }
 
         using (var fill = new SolidBrush(StateColor()))
@@ -276,12 +405,14 @@ public sealed class StatusOverlay : Form, IStatusView
         var totalWidth = (barWidth * factors.Length) + (gap * (factors.Length - 1));
         var left = center.X - (totalWidth / 2);
 
-        // 0.15 是静音时的底：条子还在，证明在录；1.0 是满格。
-        var gain = 0.15f + (0.85f * Math.Clamp(level, 0, 1));
+        // 增益曲线在 AudioLevel 里（可单测）：静音 0.15 的底，满格 1.0。
+        var gain = AudioLevel.ToDisplayGain(level);
+        var maxHeight = Math.Max(barWidth, (int)(diameter * WaveformHeightCap));
         using var brush = new SolidBrush(Color.White);
         foreach (var factor in factors)
         {
-            var height = Math.Max(barWidth, (int)(diameter * 0.62f * factor * gain));
+            var height = (int)(diameter * factor * gain);
+            height = Math.Clamp(height, barWidth, maxHeight);
             var bar = new Rectangle(left, center.Y - (height / 2), barWidth, height);
             using var path = RoundedRect(bar, barWidth / 2);
             graphics.FillPath(brush, path);
@@ -399,6 +530,11 @@ public sealed class StatusOverlay : Form, IStatusView
 
         ForceShow();
 
+        // 换状态会同时改尺寸、位置与 Region，必须整窗重画一遍；否则残留的旧像素会
+        // 压在新画的内容上。
+        Invalidate(true);
+        Update();
+
         _log?.Info(
             $"状态条 {state}：文字 {text}，WinForms 可见 {Visible}，"
             + $"Win32 可见 {IsWindowVisible(Handle)}，位置 {Location.X},{Location.Y}，"
@@ -411,7 +547,9 @@ public sealed class StatusOverlay : Form, IStatusView
         else
         {
             _smoothedLevel = 0;
-            if (state is OverlayState.Success or OverlayState.Warning or OverlayState.Failure)
+
+            // 拖动期间不挂自动回落：否则拖到一半窗口自己消失，鼠标捕获被收回，这次拖动就丢了。
+            if (!_dragging && _state is OverlayState.Success or OverlayState.Warning or OverlayState.Failure)
             {
                 _autoHide.Start();
             }
@@ -419,50 +557,103 @@ public sealed class StatusOverlay : Form, IStatusView
     }
 
     /// <summary>
-    /// 水平居中、离工作区底部固定距离。工作区已经扣掉任务栏，所以不必再猜任务栏高度。
+    /// 按百分比把圆心放到主屏工作区里（工作区已扣任务栏），窗口则取“圆 + 气泡”的包围盒：
+    /// 圆心由锚点定死，气泡偏心时自己横移贴边，上边放不下就翻到圆下方。这样“录音中（无气泡）”
+    /// 与“转写中（有气泡）”之间圆心一分都不会动。
     /// </summary>
     private void LayoutWindow()
     {
         var scale = DeviceDpi / 96f;
         var diameter = (int)(BaseDiameter * scale);
-        var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
+        var gap = (int)(BaseGap * scale);
+        var area = WorkingArea();
 
+        _bubbleHeight = 0;
         var bubbleWidth = 0;
-        var bubbleHeight = 0;
         if (!string.IsNullOrEmpty(_bubbleText))
         {
             using var graphics = CreateGraphics();
             var measured = graphics.MeasureString(_bubbleText, _bubbleFont);
-            bubbleWidth = Math.Min((int)measured.Width + (int)(16 * scale), (int)(BaseMaxBubbleWidth * scale));
-            bubbleHeight = (int)measured.Height + (int)(10 * scale);
+            bubbleWidth = Math.Min(
+                (int)measured.Width + (int)(16 * scale),
+                Math.Min((int)(BaseMaxBubbleWidth * scale), area.Width));
+            _bubbleHeight = Math.Min((int)measured.Height + (int)(10 * scale), area.Height);
         }
 
-        var width = Math.Max(diameter, bubbleWidth);
-        var height = diameter + (bubbleHeight > 0 ? bubbleHeight + (int)(BaseGap * scale) : 0);
-        Size = new Size(width, height);
+        var radius = diameter / 2;
+        var centerX = Math.Clamp(
+            area.Left + (int)Math.Round(area.Width * _anchorX),
+            area.Left + radius,
+            Math.Max(area.Left + radius, area.Right - radius));
+        var centerY = Math.Clamp(
+            area.Top + (int)Math.Round(area.Height * _anchorY),
+            area.Top + radius,
+            Math.Max(area.Top + radius, area.Bottom - radius));
 
-        var left = area.Left + (area.Width - width) / 2;
-        var top = area.Bottom - (int)(BaseBottomMargin * scale) - height;
-        Location = new Point(left, Math.Max(area.Top, top));
+        var circle = new Rectangle(centerX - radius, centerY - radius, diameter, diameter);
 
-        ApplyHitRegion(diameter, bubbleHeight, scale);
+        var bubble = Rectangle.Empty;
+        _bubbleBelow = false;
+        if (_bubbleHeight > 0)
+        {
+            // 上方放不下（含贴边余量）就翻到圆下方：拖到贴顶时气泡自动钻到圆的下面去。
+            _bubbleBelow = circle.Top - gap - _bubbleHeight < area.Top + (int)(BubbleEdgeMargin * scale);
+            var bubbleTop = _bubbleBelow ? circle.Bottom + gap : circle.Top - gap - _bubbleHeight;
+            bubbleTop = Math.Clamp(bubbleTop, area.Top, Math.Max(area.Top, area.Bottom - _bubbleHeight));
+            var bubbleLeft = Math.Clamp(
+                centerX - (bubbleWidth / 2),
+                area.Left,
+                Math.Max(area.Left, area.Right - bubbleWidth));
+            bubble = new Rectangle(bubbleLeft, bubbleTop, bubbleWidth, _bubbleHeight);
+        }
+
+        // 窗口只是两个形状的包围盒：所以不把 Location 钳进工作区——那会把圆心一起推走，
+        // 宽气泡贴边时正是这样让圆心偏出十几个像素的。
+        var bounds = bubble.IsEmpty ? circle : Rectangle.Union(circle, bubble);
+        Size = new Size(bounds.Width, bounds.Height);
+        Location = bounds.Location;
+
+        _circleRect = new Rectangle(circle.X - bounds.X, circle.Y - bounds.Y, diameter, diameter);
+        _bubbleRect = bubble.IsEmpty
+            ? Rectangle.Empty
+            : new Rectangle(bubble.X - bounds.X, bubble.Y - bounds.Y, bubble.Width, bubble.Height);
+
+        ApplyHitRegion(scale);
+
+        // 拖动时每帧都在改尺寸、位置与 Region，这里同步重画一次，免得留下上一帧的残影。
+        Invalidate(true);
+        Update();
+
+        // 圆心是唯一的位置状态：窗口怎么长都该让圆心落在锚点上。对不上就是布局算错了，
+        // 这种偏差肉眼只能看出“轻微”，所以让它每次都被记下来。
+        if (!_dragging)
+        {
+            var actual = CircleCenterScreen();
+            if (actual.X != centerX || actual.Y != centerY)
+            {
+                _log?.Warn(
+                    $"状态条布局偏离：圆心期望 {centerX},{centerY}，实际 {actual.X},{actual.Y}，"
+                    + $"窗口 {Width}x{Height} @ {Location.X},{Location.Y}，气泡高 {_bubbleHeight}，"
+                    + $"气泡在下方 {_bubbleBelow}，工作区 {area}");
+            }
+        }
     }
 
-    /// <summary>圆外的透明区域不参与命中测试，避免挡住下方的点击（虽然整窗已是鼠标穿透）。</summary>
-    private void ApplyHitRegion(int diameter, int bubbleHeight, float scale)
+    /// <summary>Region 之外不接鼠标，所以圆和气泡之外照旧点得穿；拖动也只在这两个形状上生效。</summary>
+    private void ApplyHitRegion(float scale)
     {
         var region = new Region();
         region.MakeEmpty();
 
-        var circle = new Rectangle((Width - diameter) / 2, Height - diameter, diameter, diameter);
-        using var circlePath = new GraphicsPath();
-        circlePath.AddEllipse(circle);
-        region.Union(circlePath);
-
-        if (bubbleHeight > 0)
+        using (var circlePath = new GraphicsPath())
         {
-            using var bubblePath = RoundedRect(
-                new Rectangle(0, 0, Width, bubbleHeight), (int)(6 * scale));
+            circlePath.AddEllipse(_circleRect);
+            region.Union(circlePath);
+        }
+
+        if (!_bubbleRect.IsEmpty)
+        {
+            using var bubblePath = RoundedRect(_bubbleRect, (int)(6 * scale));
             region.Union(bubblePath);
         }
 
@@ -473,6 +664,10 @@ public sealed class StatusOverlay : Form, IStatusView
 
     private void HideOverlay()
     {
+        // 拖动中被藏起来（自动回落）时也得把这次拖动收尾，否则新位置既没落盘，
+        // 下一次显示还会被残留的拖动状态把窗口拽到光标底下。
+        EndDrag(commit: true);
+
         _tick.Stop();
         _autoHide.Stop();
         Visible = false;
@@ -489,7 +684,7 @@ public sealed class StatusOverlay : Form, IStatusView
     private void ForceShow()
     {
         var style = GetWindowLong(Handle, GwlExStyle).ToInt64();
-        var wanted = style | WsExNoActivate | WsExTransparent | WsExToolWindow | WsExLayered;
+        var wanted = style | WsExNoActivate | WsExToolWindow | WsExLayered;
         if (wanted != style)
         {
             SetWindowLong(Handle, GwlExStyle, new IntPtr(wanted));

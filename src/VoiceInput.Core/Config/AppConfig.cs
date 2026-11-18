@@ -4,7 +4,7 @@ using VoiceInput.Core.Optimize;
 namespace VoiceInput.Core.Config;
 
 /// <summary>
-/// 配置内容。21 个字段全部可选，缺省值就是可用值，所以“没有配置文件”也能启动到
+/// 配置内容。23 个字段全部可选，缺省值就是可用值，所以“没有配置文件”也能启动到
 /// 报缺 Key 那一步，而不是先炸在空引用上。
 /// </summary>
 /// <remarks>
@@ -17,6 +17,16 @@ public sealed record AppConfig
     public const string DefaultBaseUrl = "https://api.deepseek.com";
     public const string DefaultProvider = "deepseek";
     public const int MaxSecondsLimit = 118;
+
+    /// <summary>状态圆圆心位置的百分比下限与上限：可以拖到任意位置，但整颗圆不能跑出工作区。</summary>
+    public const double OverlayMinFraction = 0.05;
+
+    public const double OverlayMaxFraction = 0.95;
+
+    /// <summary>缺省位置：主屏底部居中，与原先自动摆放的位置一致。</summary>
+    public const double DefaultOverlayX = 0.5;
+
+    public const double DefaultOverlayY = 0.92;
 
     private static readonly IReadOnlyDictionary<string, string> DefaultOptions =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -90,6 +100,14 @@ public sealed record AppConfig
     /// 只在配置文件里改，设置窗口不放它。
     /// </summary>
     public bool AiOptimizeThinking { get; init; }
+
+    /// <summary>
+    /// 状态圆的圆心位置，单位是**主屏工作区**的百分比（已扣掉任务栏）。存百分比不存像素：
+    /// 换分辨率或改缩放后位置不变。0.5 / 0.92 就是原来的“底部居中”。
+    /// </summary>
+    public double OverlayX { get; init; } = DefaultOverlayX;
+
+    public double OverlayY { get; init; } = DefaultOverlayY;
 }
 
 

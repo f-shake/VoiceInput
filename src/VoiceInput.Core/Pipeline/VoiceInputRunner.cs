@@ -87,8 +87,13 @@ public sealed class VoiceInputRunner
     private volatile ITextRefiner? _refiner;
 
     private RunnerState _state = RunnerState.Idle;
-    private bool _guardTripped;
-    private string _guardKey = string.Empty;
+
+    /// <summary>
+    /// 本次按住热键期间已经被判定为组合键。必须一直挡到松开热键为止：否则长按产生的
+    /// 自动重复，或者“别的键先松开、热键还按着”，都会被当成一次新的干净按下。
+    /// </summary>
+    private bool _chordIgnored;
+
     private CancellationTokenSource? _stopRecording;
     private Task<Recording>? _recording;
 
@@ -133,9 +138,21 @@ public sealed class VoiceInputRunner
     /// <summary>设置里改了优化方式、Key、模型或地址后替换；传 null 表示“不优化”。</summary>
     public void ReplaceRefiner(ITextRefiner? refiner) => _refiner = refiner;
 
-    public void HotkeyDown()
+    /// <summary>不知道“同时还按着什么键”时的入口，等价于一次干净按下。</summary>
+    public void HotkeyDown() => HotkeyDown(Array.Empty<string>());
+
+    /// <summary>
+    /// 按下热键。<paramref name="otherKeysHeld"/> 是按下这一刻还按着的其它键：非空说明用户
+    /// 要打的是别人的组合键（右 Ctrl 本身就是修饰键），本次不启动听写。
+    /// </summary>
+    public void HotkeyDown(IReadOnlyCollection<string> otherKeysHeld)
     {
+        ArgumentNullException.ThrowIfNull(otherKeysHeld);
+
         var busy = false;
+        var chorded = false;
+        string? chordNote = null;
+
         lock (_gate)
         {
             if (_state == RunnerState.Recording)
@@ -148,11 +165,17 @@ public sealed class VoiceInputRunner
             {
                 busy = true;
             }
+            else if (otherKeysHeld.Count > 0 || _chordIgnored)
+            {
+                chorded = true;
+
+                // 一次按住只记一条日志：自动重复会连着来十几条。
+                chordNote = _chordIgnored ? null : string.Join("、", otherKeysHeld);
+                _chordIgnored = true;
+            }
             else
             {
                 _state = RunnerState.Recording;
-                _guardTripped = false;
-                _guardKey = string.Empty;
                 _stopRecording = new CancellationTokenSource();
                 var token = _stopRecording.Token;
                 _recording = Task.Run(() => _recorder.Record(token));
@@ -165,28 +188,28 @@ public sealed class VoiceInputRunner
             return;
         }
 
+        if (chorded)
+        {
+            if (chordNote is not null)
+            {
+                _log.Info($"{ErrorCodes.ComboCancelled} 按下热键时 {chordNote} 还按着，不启动。");
+            }
+
+            return;
+        }
+
         _feedback.Play(ToneKind.Start);
         _status.Show(OverlayState.Recording, ErrorCatalog.Recording);
     }
 
-    /// <summary>录音期间按下其它键，说明用户在打组合键，本次听写作废。</summary>
+    /// <summary>
+    /// 录音期间按下了别的键：说明用户打的是组合键，本次听写作废。
+    /// 必须当场取消——等到热键松开才提示，那段时间的录音既没人要，用户还得一直看着“录音中”。
+    /// </summary>
     public void NoteOtherKey(string keyName)
-    {
-        lock (_gate)
-        {
-            if (_state == RunnerState.Recording)
-            {
-                _guardTripped = true;
-                _guardKey = keyName;
-            }
-        }
-    }
-
-    public async Task HotkeyUpAsync()
     {
         CancellationTokenSource? stop;
         Task<Recording>? recordingTask;
-        bool guard;
 
         lock (_gate)
         {
@@ -195,8 +218,39 @@ public sealed class VoiceInputRunner
                 return;
             }
 
+            _state = RunnerState.Idle;
+            _chordIgnored = true;
+            stop = _stopRecording;
+            recordingTask = _recording;
+            _stopRecording = null;
+            _recording = null;
+        }
+
+        _log.Info($"{ErrorCodes.ComboCancelled} 录音期间按下了 {keyName}，立即取消。");
+        _feedback.Play(ToneKind.Error);
+        Fail(ErrorCatalog.ComboCancelled);
+        stop?.Cancel();
+
+        // 钩子线程上不能等录音停下：交给后台收尾，这里只负责把取消源放掉。
+        _ = DiscardRecordingAsync(recordingTask, stop);
+    }
+
+    public async Task HotkeyUpAsync()
+    {
+        CancellationTokenSource? stop;
+        Task<Recording>? recordingTask;
+
+        lock (_gate)
+        {
+            // 一次按住到此结束，下一次按下重新判断是不是组合键。
+            _chordIgnored = false;
+
+            if (_state != RunnerState.Recording)
+            {
+                return;
+            }
+
             _state = RunnerState.Transcribing;
-            guard = _guardTripped;
             stop = _stopRecording;
             recordingTask = _recording;
             _stopRecording = null;
@@ -208,7 +262,7 @@ public sealed class VoiceInputRunner
 
         try
         {
-            await RunPipelineAsync(recordingTask, guard).ConfigureAwait(false);
+            await RunPipelineAsync(recordingTask).ConfigureAwait(false);
         }
         catch (VoiceInputException ex)
         {
@@ -229,15 +283,8 @@ public sealed class VoiceInputRunner
         }
     }
 
-    private async Task RunPipelineAsync(Task<Recording>? recordingTask, bool guard)
+    private async Task RunPipelineAsync(Task<Recording>? recordingTask)
     {
-        if (guard)
-        {
-            _log.Info($"{ErrorCodes.ComboCancelled} 录音期间按下了 {_guardKey}，整段丢弃。");
-            Fail(ErrorCatalog.ComboCancelled);
-            return;
-        }
-
         Recording recording;
         try
         {
@@ -366,5 +413,29 @@ public sealed class VoiceInputRunner
         var detail = string.IsNullOrEmpty(ex.Detail) ? string.Empty : " " + ex.Detail;
         _log.Error($"{ex.Code} {ex.UserMessage}{detail}");
         Fail(ex.UserMessage);
+    }
+
+    /// <summary>
+    /// 被组合键作废的录音已经在取消，但它的任务再没有人 await 了，得有人收尾：
+    /// 等它真的停下来（取消异常本来就没有接收方，吞掉即可）再把取消源释放掉。
+    /// </summary>
+    private async Task DiscardRecordingAsync(Task<Recording>? recording, CancellationTokenSource? stop)
+    {
+        try
+        {
+            if (recording is not null)
+            {
+                await recording.ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            // 录音器可能有自己的失败原因；用户已经看到红叉，这里只留线索，不再打扰。
+            _log.Warn($"{ErrorCodes.ComboCancelled} 取消的录音收尾异常：{ex.Message}");
+        }
+        finally
+        {
+            stop?.Dispose();
+        }
     }
 }

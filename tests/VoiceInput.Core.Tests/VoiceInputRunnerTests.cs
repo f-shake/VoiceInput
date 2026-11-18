@@ -161,18 +161,90 @@ public sealed class VoiceInputRunnerTests
     }
 
     [Fact]
-    public async Task 录音期间按了别的键就整段丢弃()
+    public async Task 组合键按下瞬间就提示并停录()
+    {
+        var transcriber = new FakeTranscriber();
+        var context = Build(transcriber, recorder: new FakeRecorder { WaitForCancel = true });
+
+        context.Runner.HotkeyDown();
+        await context.Recorder.Started.Task;
+
+        context.Runner.NoteOtherKey("C");
+
+        // 提示发生在按下 C 的那一刻，此时热键还没松开。
+        Assert.Equal(OverlayState.Failure, context.Status.LastState);
+        Assert.Equal(ErrorCatalog.ComboCancelled, context.Status.LastText);
+        Assert.Equal(RunnerState.Idle, context.Runner.State);
+        Assert.Equal(new[] { ToneKind.Start, ToneKind.Error }, context.Tones.Played);
+
+        // 取消真的送到了录音器，而不是攥到松手才丢。
+        await context.Recorder.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // 松开热键：不再提示、不转写、不碰剪贴板。
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Single(context.Status.Entries, entry => entry.State == OverlayState.Failure);
+        Assert.Equal(0, transcriber.Calls);
+        Assert.Empty(context.Paster.Writes);
+    }
+
+    [Fact]
+    public async Task 按下热键时另有键按着就不启动()
     {
         var transcriber = new FakeTranscriber();
         var context = Build(transcriber);
 
-        context.Runner.HotkeyDown();
-        context.Runner.NoteOtherKey("C");
+        context.Runner.HotkeyDown(new[] { "LeftCtrl" });
+
+        Assert.Equal(0, context.Recorder.Calls);
+        Assert.Empty(context.Status.Entries);
+        Assert.Empty(context.Tones.Played);
+        Assert.True(context.Log.Contains(ErrorCodes.ComboCancelled));
+
         await context.Runner.HotkeyUpAsync();
 
+        Assert.Equal(RunnerState.Idle, context.Runner.State);
         Assert.Equal(0, transcriber.Calls);
-        Assert.Empty(context.Paster.Writes);
-        Assert.Equal(ErrorCatalog.ComboCancelled, context.Status.LastText);
+    }
+
+    [Fact]
+    public async Task 被忽略后再干净按下照常录音()
+    {
+        var transcriber = new FakeTranscriber();
+        var context = Build(transcriber);
+
+        context.Runner.HotkeyDown(new[] { "Shift" });
+        await context.Runner.HotkeyUpAsync();
+
+        context.Runner.HotkeyDown(Array.Empty<string>());
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(1, context.Recorder.Calls);
+        Assert.Equal(1, transcriber.Calls);
+        Assert.Equal(new[] { "你好" }, context.Paster.Writes);
+    }
+
+    [Fact]
+    public async Task 取消后热键自动重复不再启动()
+    {
+        var context = Build();
+
+        context.Runner.HotkeyDown();
+        await context.Recorder.Started.Task;
+
+        context.Runner.NoteOtherKey("C");
+
+        // 长按热键时系统会持续补发按下事件；即使别的键已经松开，也不许重新启动。
+        context.Runner.HotkeyDown();
+        context.Runner.HotkeyDown();
+
+        Assert.Equal(1, context.Recorder.Calls);
+        Assert.Single(context.Status.Entries, entry => entry.State == OverlayState.Failure);
+        Assert.Single(context.Log.Lines, line => line.Contains(ErrorCodes.ComboCancelled, StringComparison.Ordinal));
+
+        await context.Runner.HotkeyUpAsync();
+
+        Assert.Equal(1, context.Recorder.Calls);
     }
 
     [Fact]

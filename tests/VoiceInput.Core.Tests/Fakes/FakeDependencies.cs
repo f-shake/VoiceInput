@@ -45,12 +45,18 @@ public sealed class FakeRecorder : IRecorder
 
     public Exception? Error { get; set; }
 
+    /// <summary>置为 true 时一直阻塞到取消为止，模拟“还在录”的真实录音器。</summary>
+    public bool WaitForCancel { get; set; }
+
     public int Calls { get; private set; }
 
     public bool SawCancel { get; private set; }
 
     /// <summary>录音真的开始了才置位。录音跑在线程池上，测试靠它避免抢跑。</summary>
     public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>取消真的送到录音器才置位：用来断言“按下第二个键就停录”，而不是等到松手。</summary>
+    public TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public Recording Record(CancellationToken stopToken)
     {
@@ -60,6 +66,13 @@ public sealed class FakeRecorder : IRecorder
         if (Error is not null)
         {
             throw Error;
+        }
+
+        if (WaitForCancel)
+        {
+            stopToken.WaitHandle.WaitOne();
+            Cancelled.TrySetResult();
+            stopToken.ThrowIfCancellationRequested();
         }
 
         return Result;

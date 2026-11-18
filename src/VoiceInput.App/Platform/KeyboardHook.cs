@@ -20,11 +20,18 @@ public sealed class KeyboardHook : IDisposable
     private const int WmQuit = 0x0012;
     private const int VkControl = 0x11;
     private const int VkMenu = 0x12;
-    private const int VkRControl = 0xA3;
-    private const int VkLControl = 0xA2;
     private const int VkShift = 0x10;
+    private const int VkLShift = 0xA0;
+    private const int VkRShift = 0xA1;
+    private const int VkLControl = 0xA2;
+    private const int VkRControl = 0xA3;
+    private const int VkLMenu = 0xA4;
+    private const int VkRMenu = 0xA5;
+    private const int VkLWin = 0x5B;
+    private const int VkRWin = 0x5C;
     private const int VkF1 = 0x70;
     private const int VkF12 = 0x7B;
+    private const int KeyDownMask = 0x8000;
 
     private readonly LowLevelKeyboardProc _callback;
     private readonly Action<string>? _reportFailure;
@@ -36,6 +43,12 @@ public sealed class KeyboardHook : IDisposable
     private bool _disposed;
 
     private int _reportedFailures;
+
+    /// <summary>
+    /// 钩子真实收到过按下、还没收到抬起的键。只在钩子线程上读写（按键回调与
+    /// <see cref="ModifierKeysDownBesides"/> 的调用方都在这个线程），所以不需要加锁。
+    /// </summary>
+    private readonly HashSet<int> _heldDown = new();
 
     public KeyboardHook(Action<string>? reportFailure = null)
     {
@@ -84,10 +97,20 @@ public sealed class KeyboardHook : IDisposable
         _ready.Dispose();
     }
 
+    /// <summary>
+    /// 低层钩子报的是左右分开的虚拟键码（右 Ctrl 是 0xA3，不是通用的 0x11），所以修饰键
+    /// 必须逐个映射：否则日志里会出现 “VK160” 这种看不懂的名字。
+    /// </summary>
     public static string NameOf(int virtualKey) => virtualKey switch
     {
         VkRControl => "RightCtrl",
         VkLControl => "LeftCtrl",
+        VkLShift => "LeftShift",
+        VkRShift => "RightShift",
+        VkLMenu => "LeftAlt",
+        VkRMenu => "RightAlt",
+        VkLWin => "LeftWin",
+        VkRWin => "RightWin",
         VkShift => "Shift",
         VkMenu => "Alt",
         VkControl => "Ctrl",
@@ -96,6 +119,72 @@ public sealed class KeyboardHook : IDisposable
         >= 0x41 and <= 0x5A => ((char)virtualKey).ToString(),
         _ => "VK" + virtualKey,
     };
+
+    /// <summary>
+    /// 此刻除 <paramref name="virtualKey"/> 之外还按着的**修饰键**，用来判断热键是不是“干净按下”。
+    ///
+    /// 只认修饰键：真正的组合键都以修饰键打头；字母、数字、小键盘、锁定键按着不该把热键挡掉
+    /// （环境里的怪键列不完——本机就有一把恒报按下的虚拟键）。录音期间的取消规则不在此列：
+    /// 那时任何真实按键都算数。
+    ///
+    /// 记账只认钩子真实收到过的按下/抬起，不扫全表：本机实测 <c>GetAsyncKeyState</c> 对某些
+    /// 虚拟键会长期报“按下”（小键盘 1 = 0x61 恒为 0x8000），扫全表会把每次按热键都判成组合键。
+    /// 反过来，钩子偶尔会漏掉抬起（安全桌面、钩子被系统重装），那些残留用
+    /// <c>GetAsyncKeyState</c> 对账清掉——只核对确实进过表的键，假按下的键根本进不来。
+    /// </summary>
+    public IReadOnlyList<string> ModifierKeysDownBesides(int virtualKey)
+    {
+        try
+        {
+            PruneReleasedKeys();
+
+            var held = new List<string>();
+            foreach (var vk in _heldDown)
+            {
+                if (vk != virtualKey && IsModifier(vk))
+                {
+                    held.Add(NameOf(vk));
+                }
+            }
+
+            return held;
+        }
+        catch (Exception ex)
+        {
+            // 宁可漏判成“干净按下”，也不能让热键从此不响应。
+            _reportFailure?.Invoke($"按键判定失败，按干净按下处理：{ex.Message}");
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>Ctrl / Shift / Alt / Win 的通用与左右形式：只有它们会让热键变成别人的组合键。</summary>
+    private static bool IsModifier(int virtualKey) => virtualKey is
+        0x10 or 0x11 or 0x12                       // Shift / Ctrl / Alt（通用）
+        or >= 0xA0 and <= 0xA5                     // 左/右 Shift、Ctrl、Alt
+        or 0x5B or 0x5C;                           // 左右 Win
+
+    /// <summary>清掉“见过按下、却从没等到抬起、物理上其实已经松开”的残留键。</summary>
+    private void PruneReleasedKeys()
+    {
+        if (_heldDown.Count == 0)
+        {
+            return;
+        }
+
+        var released = new List<int>();
+        foreach (var vk in _heldDown)
+        {
+            if ((GetAsyncKeyState(vk) & KeyDownMask) == 0)
+            {
+                released.Add(vk);
+            }
+        }
+
+        foreach (var vk in released)
+        {
+            _heldDown.Remove(vk);
+        }
+    }
 
     private void PumpKeyboardMessages()
     {
@@ -147,8 +236,28 @@ public sealed class KeyboardHook : IDisposable
             if (isDown || isUp)
             {
                 var data = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
-                var ctrl = (GetAsyncKeyState(VkControl) & 0x8000) != 0;
-                var alt = (GetAsyncKeyState(VkMenu) & 0x8000) != 0;
+                var ctrl = (GetAsyncKeyState(VkControl) & KeyDownMask) != 0;
+                var alt = (GetAsyncKeyState(VkMenu) & KeyDownMask) != 0;
+
+                // 同一颗键在表里还按着又来一次“按下”，那是系统的自动重复：忽略掉。
+                // 不忽略的话，“按住 A 再按右 Ctrl”会在半秒后被 A 的重复键取消听写；
+                // 长按热键也就不用再靠上层去挡重复事件。
+                var repeated = isDown && _heldDown.Contains(data.VirtualKeyCode);
+
+                // 先记账再发事件：订阅者在“按下”里就要问“还按着谁”，这一刻按键自己必须在表里。
+                if (isDown)
+                {
+                    _heldDown.Add(data.VirtualKeyCode);
+                }
+                else
+                {
+                    _heldDown.Remove(data.VirtualKeyCode);
+                }
+
+                if (repeated)
+                {
+                    return CallNextHookEx(_handle, code, wParam, lParam);
+                }
 
                 try
                 {

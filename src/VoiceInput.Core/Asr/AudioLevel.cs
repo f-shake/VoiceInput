@@ -11,6 +11,15 @@ public static class AudioLevel
     public const double FloorDb = -60;
     public const double CeilingDb = -6;
 
+    /// <summary>静音时的条高增益：条子还留着，用户才看得出“正在录”。</summary>
+    public const double SilenceGain = 0.15;
+
+    /// <summary>
+    /// 增益曲线的 gamma。小于 1 是专门抬高低音区：正常说话的 level 只有 0.5 上下，
+    /// 线性映射会让波形长期贴在圆的下半截，看起来像“只有很大声才会跳”。
+    /// </summary>
+    public const double DisplayGamma = 0.6;
+
     public static float FromPcm16Le(ReadOnlySpan<byte> pcm)
     {
         if (pcm.Length < 2)
@@ -40,5 +49,15 @@ public static class AudioLevel
         var db = 20 * Math.Log10(rms / 32768.0);
         var ratio = (db - FloorDb) / (CeilingDb - FloorDb);
         return (float)Math.Clamp(ratio, 0, 1);
+    }
+
+    /// <summary>
+    /// 电平 → 状态条竖条的高度增益（0.15~1）。单独抽出来是为了能直接测：
+    /// 曲线形状一变，状态条的观感就跟着变，靠手工截图看是看不出拐点的。
+    /// </summary>
+    public static float ToDisplayGain(float level)
+    {
+        var clamped = Math.Clamp(level, 0f, 1f);
+        return (float)(SilenceGain + ((1 - SilenceGain) * Math.Pow(clamped, DisplayGamma)));
     }
 }

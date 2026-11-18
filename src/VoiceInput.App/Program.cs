@@ -240,6 +240,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _ = _overlay.Handle;
             _status = _overlay;
             _invokeAnchor = _overlay;
+
+            // 只在松手时写盘：拖动中每动一下就写会把配置文件刷爆。
+            _overlay.Moved += SaveOverlayPosition;
         }
         catch (Exception ex)
         {
@@ -385,7 +388,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             if (key.IsDown)
             {
-                _runner.HotkeyDown();
+                // 按下这一刻还按着别的键，说明用户要打的是那个键的组合键，不是听写。
+                _runner.HotkeyDown(_hook.ModifierKeysDownBesides(key.VirtualKey));
             }
             else
             {
@@ -516,6 +520,28 @@ internal sealed class TrayApplicationContext : ApplicationContext
             $"设置已保存：热键 {updated.Hotkey}（{(hotkeyChanged ? "已立即生效" : "未变")}），"
             + $"提示音 {updated.Beep}，开机自启 {result.StartupEnabled}，引擎 {updated.Provider}，"
             + $"结果优化 {DescribeOptimize(updated)}。");
+    }
+
+    /// <summary>
+    /// 拖动结束后落盘。值没变就什么都不做，免得“点一下再放开”也重写一次配置文件。
+    /// </summary>
+    private void SaveOverlayPosition(double x, double y)
+    {
+        if (Math.Abs(x - _config.OverlayX) < 0.0005 && Math.Abs(y - _config.OverlayY) < 0.0005)
+        {
+            return;
+        }
+
+        _config = _config with { OverlayX = x, OverlayY = y };
+        try
+        {
+            ConfigLoader.Save(_configPath, _config);
+            _log.Info($"状态条位置已保存：主屏宽 {x:P1}、高 {y:P1} 处。");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Warn($"{ErrorCodes.Unexpected} 状态条位置保存失败：{ex.Message}");
+        }
     }
 
     private void ExitFromTray()

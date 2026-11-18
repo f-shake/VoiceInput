@@ -197,6 +197,61 @@ public sealed class ConfigLoaderTests : IDisposable
     }
 
     [Fact]
+    public void 没有overlay字段时用底部居中的缺省值()
+    {
+        var config = ConfigLoader.Load(Write("""{ "hotkey": "F9" }""")).Config;
+
+        Assert.Equal(AppConfig.DefaultOverlayX, config.OverlayX);
+        Assert.Equal(AppConfig.DefaultOverlayY, config.OverlayY);
+    }
+
+    [Fact]
+    public void overlay位置能读回来()
+    {
+        var config = ConfigLoader.Load(Write("""{ "overlay": { "x": 0.2, "y": 0.7 } }""")).Config;
+
+        Assert.Equal(0.2, config.OverlayX);
+        Assert.Equal(0.7, config.OverlayY);
+    }
+
+    [Fact]
+    public void overlay越界被钳到边界()
+    {
+        var config = ConfigLoader.Load(Write("""{ "overlay": { "x": 2, "y": -1 } }""")).Config;
+
+        Assert.Equal(AppConfig.OverlayMaxFraction, config.OverlayX);
+        Assert.Equal(AppConfig.OverlayMinFraction, config.OverlayY);
+    }
+
+    [Fact]
+    public void overlay只给一半时另一半用缺省值()
+    {
+        var config = ConfigLoader.Load(Write("""{ "overlay": { "x": 0.1 } }""")).Config;
+
+        Assert.Equal(0.1, config.OverlayX);
+        Assert.Equal(AppConfig.DefaultOverlayY, config.OverlayY);
+    }
+
+    [Fact]
+    public void overlay不是对象时报E16()
+    {
+        var error = Assert.Throws<VoiceInputException>(() => ConfigLoader.Load(Write("""{ "overlay": 1 }""")));
+
+        Assert.Equal(ErrorCodes.ConfigValueInvalid, error.Code);
+        Assert.Contains("overlay", error.UserMessage);
+    }
+
+    [Fact]
+    public void overlay里拼错的键名会进告警而不是悄悄退回默认位置()
+    {
+        var loaded = ConfigLoader.Load(Write("""{ "overlay": { "X": 0.2, "y": 0.7 } }"""));
+
+        Assert.Equal(AppConfig.DefaultOverlayX, loaded.Config.OverlayX);
+        Assert.Equal(0.7, loaded.Config.OverlayY);
+        Assert.Contains(loaded.Warnings, warning => warning.Contains("overlay.X", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void 显式路径优先于其它查找位置()
     {
         var resolved = ConfigLoader.ResolvePath(@"C:\x\y.json", _directory, Path.GetTempPath());

@@ -109,6 +109,13 @@ public static class ConfigLoader
                     case "restoreClipboard":
                         config = config with { RestoreClipboard = ReadBool(property.Name, value) };
                         break;
+                    case "overlay":
+                        {
+                            var overlay = ReadOverlay(property.Name, value);
+                            config = config with { OverlayX = overlay.X, OverlayY = overlay.Y };
+                            unknown.AddRange(overlay.Unknown.Select(field => $"overlay.{field}"));
+                            break;
+                        }
                     case "aiOptimizeApiKey":
                         config = config with { AiOptimizeApiKey = ReadString(property.Name, value) };
                         break;
@@ -213,6 +220,11 @@ public static class ConfigLoader
         root["beep"] = config.Beep;
         root["pasteDelayMilliseconds"] = config.PasteDelayMilliseconds;
         root["restoreClipboard"] = config.RestoreClipboard;
+        // 只改 x/y，保留 overlay 里用户自己写的其它键：整个替换会把它们悄悄抹掉。
+        var overlay = root["overlay"] as JsonObject ?? new JsonObject();
+        overlay["x"] = Math.Round(config.OverlayX, 4);
+        overlay["y"] = Math.Round(config.OverlayY, 4);
+        root["overlay"] = overlay;
         root["aiOptimizeApiKey"] = config.AiOptimizeApiKey;
         root["aiOptimizeMode"] = config.AiOptimizeMode;
         root["keepTrailingPunctuation"] = config.KeepTrailingPunctuation;
@@ -405,6 +417,50 @@ public static class ConfigLoader
         JsonValueKind.False => false,
         _ => throw Invalid(name, value),
     };
+
+    /// <summary>
+    /// overlay 是唯一一个嵌套对象字段。越界数字钳回范围而不是报错：手改配置把 0.92
+    /// 写成 9.2，只该让圆贴边，不该让整个程序起不来。
+    /// </summary>
+    private static (double X, double Y, List<string> Unknown) ReadOverlay(string name, JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            throw Invalid(name, "必须是对象，形如 { \"x\": 0.5, \"y\": 0.92 }");
+        }
+
+        var x = AppConfig.DefaultOverlayX;
+        var y = AppConfig.DefaultOverlayY;
+        var unknown = new List<string>();
+        foreach (var property in value.EnumerateObject())
+        {
+            switch (property.Name)
+            {
+                case "x":
+                    x = ReadFraction($"{name}.x", property.Value);
+                    break;
+                case "y":
+                    y = ReadFraction($"{name}.y", property.Value);
+                    break;
+                default:
+                    // 拼错键名（比如写成 "X"）不该悄悄退回默认位置：和顶层未知字段一样进告警。
+                    unknown.Add(property.Name);
+                    break;
+            }
+        }
+
+        return (x, y, unknown);
+    }
+
+    private static double ReadFraction(string name, JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number))
+        {
+            throw Invalid(name, value);
+        }
+
+        return Math.Clamp(number, AppConfig.OverlayMinFraction, AppConfig.OverlayMaxFraction);
+    }
 
     private static IReadOnlyList<double> ReadDoubleArray(string name, JsonElement value)
     {

@@ -32,10 +32,12 @@ public sealed class ConfigSaveTests : IDisposable
         Beep = false,
         PasteDelayMilliseconds = 20,
         RestoreClipboard = false,
+        OverlayX = 0.25,
+        OverlayY = 0.8,
     };
 
     [Fact]
-    public void 新文件写出全部二十一个字段()
+    public void 新文件写出全部二十二个字段()
     {
         var path = PathOf();
 
@@ -48,7 +50,7 @@ public sealed class ConfigSaveTests : IDisposable
                      "apiKey", "hotkey", "provider", "providerOptions", "deviceNumber",
                      "maxSeconds", "minSeconds", "connectTimeoutSeconds", "readTimeoutSeconds",
                      "retries", "retryBackoffSeconds", "beep", "pasteDelayMilliseconds",
-                     "restoreClipboard", "aiOptimizeMode", "aiOptimizeApiKey",
+                     "restoreClipboard", "overlay", "aiOptimizeMode", "aiOptimizeApiKey",
                      "keepTrailingPunctuation", "aiOptimizeModel", "aiOptimizeBaseUrl",
                      "aiOptimizeTimeoutSeconds", "aiOptimizeThinking",
                  })
@@ -103,6 +105,8 @@ public sealed class ConfigSaveTests : IDisposable
         Assert.Equal(saved.Beep, loaded.Beep);
         Assert.Equal(saved.PasteDelayMilliseconds, loaded.PasteDelayMilliseconds);
         Assert.Equal(saved.RestoreClipboard, loaded.RestoreClipboard);
+        Assert.Equal(saved.OverlayX, loaded.OverlayX);
+        Assert.Equal(saved.OverlayY, loaded.OverlayY);
     }
 
     [Fact]
@@ -127,6 +131,21 @@ public sealed class ConfigSaveTests : IDisposable
         ConfigLoader.Save(path, Sample());
 
         Assert.Equal("F9", ConfigLoader.Load(path).Config.Hotkey);
+    }
+
+    [Fact]
+    public void 保存overlay时保留用户自己写的子键()
+    {
+        var path = PathOf();
+        File.WriteAllText(path, """{ "overlay": { "x": 0.1, "y": 0.1, "myNote": "别删我" } }""");
+
+        ConfigLoader.Save(path, new AppConfig { OverlayX = 0.3, OverlayY = 0.8 });
+
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        var overlay = document.RootElement.GetProperty("overlay");
+        Assert.Equal(0.3, overlay.GetProperty("x").GetDouble());
+        Assert.Equal(0.8, overlay.GetProperty("y").GetDouble());
+        Assert.Equal("别删我", overlay.GetProperty("myNote").GetString());
     }
 
     [Fact]
